@@ -1,0 +1,229 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #F8F1FF;
+  color: #7B5CE6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.6), transparent 24%),
+    radial-gradient(circle at 20% 20%, rgba(255, 183, 225, 0.3), transparent 18%),
+    radial-gradient(circle at 80% 80%, rgba(200, 182, 255, 0.35), transparent 22%),
+    linear-gradient(180deg, #f8f1ff 0%, #fdeeff 100%);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.app-root,
+.game-root {
+  width: 100%;
+  height: 100%;
+}
+
+.app-root {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+}
+
+.game-shell {
+  width: min(100%, 1120px);
+  height: min(100%, 100svh - 28px);
+  border: 1px solid rgba(195, 149, 255, 0.22);
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(255, 183, 225, 0.28),
+    0 24px 72px rgba(123, 92, 230, 0.12),
+    inset 0 0 42px rgba(255, 255, 255, 0.5);
+  background: linear-gradient(180deg, #f8f1ff 0%, #fdeeff 100%);
+}
+
+.face-upload {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.face-upload__panel {
+  width: min(100%, 520px);
+  padding: 28px;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(200, 182, 255, 0.42);
+  box-shadow:
+    0 18px 48px rgba(123, 92, 230, 0.12),
+    inset 0 0 40px rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(18px);
+}
+
+.face-upload__eyebrow {
+  margin: 0 0 10px;
+  color: #ff8dc7;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.face-upload__title {
+  margin: 0;
+  color: #7b5ce6;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1;
+}
+
+.face-upload__copy {
+  margin: 14px 0 0;
+  color: #8e79df;
+  line-height: 1.6;
+}
+
+.face-upload__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.face-upload__button,
+.face-upload__ghost-button,
+.face-upload__start-button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 14px 18px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.face-upload__button,
+.face-upload__start-button {
+  background: linear-gradient(135deg, #b388ff 0%, #ffb7e1 100%);
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(179, 136, 255, 0.28);
+}
+
+.face-upload__ghost-button {
+  background: rgba(123, 92, 230, 0.08);
+  color: #7b5ce6;
+  border: 1px solid rgba(123, 92, 230, 0.14);
+}
+
+.face-upload__button:hover,
+.face-upload__ghost-button:hover,
+.face-upload__start-button:hover {
+  transform: translateY(-1px);
+}
+
+.face-upload__input {
+  display: none;
+}
+
+.face-upload__support-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.face-upload__support-card {
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(248, 241, 255, 0.72);
+  color: #7b5ce6;
+  border: 1px solid rgba(200, 182, 255, 0.32);
+}
+
+.face-upload__support-label {
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ff8dc7;
+}
+
+.face-upload__preview-card {
+  margin-top: 20px;
+  padding: 14px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(255, 183, 225, 0.48);
+  box-shadow: inset 0 0 24px rgba(255, 255, 255, 0.85);
+}
+
+.face-upload__preview-frame {
+  overflow: hidden;
+  border-radius: 20px;
+  aspect-ratio: 1;
+  background: linear-gradient(180deg, #f5e8ff 0%, #fdeeff 100%);
+  border: 1px solid rgba(123, 92, 230, 0.1);
+}
+
+.face-upload__preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.face-upload__preview-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: #7b5ce6;
+  font-size: 0.92rem;
+}
+
+.face-upload__start-button {
+  width: 100%;
+  margin-top: 20px;
+}
+
+.phaser-stage {
+  width: 100%;
+  height: 100%;
+}
+
+@media (max-width: 720px) {
+  .app-root {
+    padding: 0;
+  }
+
+  .game-shell {
+    width: 100%;
+    height: 100svh;
+    border-radius: 0;
+  }
+}
