@@ -1,17 +1,28 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react';
 
-import type { FacePlayerProfile, FaceUploadActions, FaceUploadImage, FaceUploadState } from './faceUploadTypes';
+import type {
+  FacePlayerProfile,
+  FaceUploadActions,
+  FaceUploadImage,
+  FaceUploadState,
+  FaceDetectionResult,
+} from './faceUploadTypes';
 
 type FaceUploadAction =
   | { type: 'select-image'; image: FaceUploadImage }
   | { type: 'clear-image' }
   | { type: 'begin-match' }
-  | { type: 'reset-to-menu' };
+  | { type: 'reset-to-menu' }
+  | {
+      type: 'set-detection';
+      detection: FaceDetectionResult | null;
+    };
 
 type FaceUploadContextValue = FaceUploadState & FaceUploadActions;
 
 const initialState: FaceUploadState = {
   image: null,
+  detection: null,
   uiStage: 'menu',
   profile: {
     displayName: 'Player One',
@@ -48,6 +59,11 @@ function reducer(state: FaceUploadState, action: FaceUploadAction): FaceUploadSt
       };
     default:
       return state;
+    case 'set-detection':
+  return {
+    ...state,
+    detection: action.detection,
+  };
   }
 }
 
@@ -74,6 +90,11 @@ export function FaceUploadProvider({ children }: { children: ReactNode }) {
       clearImage: () => dispatch({ type: 'clear-image' }),
       beginMatch: () => dispatch({ type: 'begin-match' }),
       resetToMenu: () => dispatch({ type: 'reset-to-menu' }),
+      setDetection: (detection) =>
+  dispatch({
+    type: 'set-detection',
+    detection,
+  }),
     }),
     [state],
   );
