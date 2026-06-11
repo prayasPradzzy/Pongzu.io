@@ -1,6 +1,22 @@
+export type Difficulty = 'easy' | 'medium' | 'hard' | 'nightmare';
+
+export type DifficultyPreset = {
+  label: string;
+  reactionDelay: number;
+  speedMultiplier: number;
+  accuracy: number;
+};
+
+export const DIFFICULTY_PRESETS: Record<Difficulty, DifficultyPreset> = {
+  easy: { label: 'Easy', reactionDelay: 350, speedMultiplier: 0.7, accuracy: 0.7 },
+  medium: { label: 'Medium', reactionDelay: 180, speedMultiplier: 0.9, accuracy: 0.85 },
+  hard: { label: 'Hard', reactionDelay: 80, speedMultiplier: 1.0, accuracy: 0.95 },
+  nightmare: { label: 'Nightmare', reactionDelay: 0, speedMultiplier: 1.15, accuracy: 1.0 },
+};
+
 export const PONG_CONFIG = {
   arenaPadding: 28,
-  winningScore: 9,
+  winningScore: 7,
   paddle: {
     width: 132,
     height: 18,

@@ -9,6 +9,7 @@ export class ScoreManager {
   private topScore = 0;
   private bottomScore = 0;
   private rallyHits = 0;
+  private longestRally = 0;
   private currentBallSpeed: number = PONG_CONFIG.ball.initialSpeed;
   private roundActive = false;
   private matchOver = false;
@@ -29,8 +30,10 @@ export class ScoreManager {
     this.roundActive = false;
     this.currentBallSpeed = PONG_CONFIG.ball.initialSpeed;
     this.rallyHits = 0;
+    this.longestRally = 0;
     this.hud.setScore(this.topScore, this.bottomScore);
     this.hud.showMessage('READY');
+    this.hud.hideWinScreen();
     this.runCountdown(initialServe);
   }
 
@@ -46,8 +49,24 @@ export class ScoreManager {
     return this.currentBallSpeed;
   }
 
+  getLongestRally() {
+    return this.longestRally;
+  }
+
+  getTopScore() {
+    return this.topScore;
+  }
+
+  getBottomScore() {
+    return this.bottomScore;
+  }
+
   registerPaddleHit() {
     this.rallyHits += 1;
+
+    if (this.rallyHits > this.longestRally) {
+      this.longestRally = this.rallyHits;
+    }
 
     if (this.rallyHits % PONG_CONFIG.ball.boostEveryHits === 0) {
       this.currentBallSpeed = Math.min(this.currentBallSpeed + PONG_CONFIG.ball.speedBoost, PONG_CONFIG.ball.maxSpeed);
@@ -71,10 +90,16 @@ export class ScoreManager {
     }
 
     this.hud.setScore(this.topScore, this.bottomScore);
-    this.hud.showPointMessage(`${winner.toUpperCase()} SCORES`);
+
+    const label = winner === 'bottom' ? 'YOU SCORE' : 'CPU SCORES';
+    this.hud.showPointMessage(label);
     this.hud.showMessage('POINT');
     this.scene.cameras.main.flash(80, 0, 229, 255, false);
 
+    // Track rally before resetting
+    if (this.rallyHits > this.longestRally) {
+      this.longestRally = this.rallyHits;
+    }
     this.rallyHits = 0;
     this.currentBallSpeed = PONG_CONFIG.ball.initialSpeed;
 
@@ -83,7 +108,13 @@ export class ScoreManager {
       this.hud.hideCountdown();
       this.hud.hideMessage();
       this.hud.hidePointMessage();
-      this.hud.showWinScreen(this.topScore > this.bottomScore ? 'TOP PLAYER' : 'BOTTOM PLAYER');
+
+      const playerWon = this.bottomScore > this.topScore;
+      this.hud.showWinScreen(playerWon ? 'victory' : 'defeat', {
+        topScore: this.topScore,
+        bottomScore: this.bottomScore,
+        longestRally: this.longestRally,
+      });
       this.scene.physics.world.pause();
       return;
     }
@@ -108,7 +139,6 @@ export class ScoreManager {
       this.hud.hideCountdown();
       this.hud.hidePointMessage();
       this.hud.hideMessage();
-      this.hud.hideWinScreen();
       this.roundActive = true;
       this.scene.physics.world.resume();
       this.onServe(nextServe);

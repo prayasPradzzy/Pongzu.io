@@ -7,9 +7,11 @@ import { GameHud } from '../ui/GameHud';
 import { InputManager } from '../systems/InputManager';
 import { ScoreManager } from '../systems/ScoreManager';
 import { VisualEffectsSystem } from '../systems/VisualEffectsSystem';
+import { CpuController } from '../systems/CpuController';
 
 export class PongScene extends Phaser.Scene {
   private inputManager!: InputManager;
+  private cpuController!: CpuController;
   private ball!: Ball;
   private topPaddle!: Paddle;
   private bottomPaddle!: Paddle;
@@ -33,7 +35,11 @@ export class PongScene extends Phaser.Scene {
     const arenaCenterX = this.scale.width / 2;
     const centerY = this.scale.height / 2;
 
+    const config = this.registry.get('customConfig');
+    const difficulty = config?.difficulty ?? 'medium';
+
     this.inputManager = new InputManager(this);
+    this.cpuController = new CpuController(this, difficulty);
     this.hud = new GameHud(this);
     this.hud.resize(this.scale.width, this.scale.height);
     this.effects = new VisualEffectsSystem(this);
@@ -80,8 +86,12 @@ export class PongScene extends Phaser.Scene {
     const width = this.scale.width;
     const height = this.scale.height;
 
-    this.topPaddle.setHorizontalVelocity(this.inputManager.getTopDirection());
+    // Player controls bottom paddle
     this.bottomPaddle.setHorizontalVelocity(this.inputManager.getBottomDirection());
+
+    // CPU controls top paddle
+    this.cpuController.update(this.topPaddle, this.ball, width);
+
     this.topPaddle.clampToBounds(width);
     this.bottomPaddle.clampToBounds(width);
     this.effects.trackBall(this.ball.getX(), this.ball.getY());
