@@ -1,10 +1,12 @@
 export type FaceUploadState = {
   image: FaceUploadImage | null;
-  uiStage: 'menu' | 'ready' | 'playing';
+  uiStage: 'menu' | 'crop' | 'ready' | 'playing';
 
   detection: FaceDetectionResult | null;
 
   profile: FacePlayerProfile;
+  croppedAvatarUrl: string | null;
+  faceBallMode: boolean;
 };
 
 export type FaceUploadImage = {
@@ -33,6 +35,10 @@ export type FaceUploadActions = {
   setDetection: (
     detection: FaceDetectionResult | null
   ) => void;
+
+  setCroppedAvatarUrl: (url: string | null) => void;
+  setFaceBallMode: (enabled: boolean) => void;
+  setUiStage: (stage: 'menu' | 'crop' | 'ready' | 'playing') => void;
 };
 
 export type FaceDetectionBox = {

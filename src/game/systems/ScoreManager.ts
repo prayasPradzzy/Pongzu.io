@@ -23,6 +23,8 @@ export class ScoreManager {
   }
 
   startMatch(initialServe: ServeDirection) {
+    this.topScore = 0;
+    this.bottomScore = 0;
     this.matchOver = false;
     this.roundActive = false;
     this.currentBallSpeed = PONG_CONFIG.ball.initialSpeed;

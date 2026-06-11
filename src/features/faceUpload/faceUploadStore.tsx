@@ -1,7 +1,7 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react';
 
 import type {
-  FacePlayerProfile,
   FaceUploadActions,
   FaceUploadImage,
   FaceUploadState,
@@ -16,7 +16,10 @@ type FaceUploadAction =
   | {
       type: 'set-detection';
       detection: FaceDetectionResult | null;
-    };
+    }
+  | { type: 'set-cropped-avatar-url'; url: string | null }
+  | { type: 'set-face-ball-mode'; enabled: boolean }
+  | { type: 'set-ui-stage'; stage: 'menu' | 'crop' | 'ready' | 'playing' };
 
 type FaceUploadContextValue = FaceUploadState & FaceUploadActions;
 
@@ -29,6 +32,8 @@ const initialState: FaceUploadState = {
     avatarLabel: 'P1',
     avatarUrl: null,
   },
+  croppedAvatarUrl: null,
+  faceBallMode: false,
 };
 
 const FaceUploadContext = createContext<FaceUploadContextValue | undefined>(undefined);
@@ -39,13 +44,16 @@ function reducer(state: FaceUploadState, action: FaceUploadAction): FaceUploadSt
       return {
         ...state,
         image: action.image,
-        uiStage: 'ready',
+        uiStage: 'crop',
+        croppedAvatarUrl: null, // Reset previous crop
       };
     case 'clear-image':
       return {
         ...state,
         image: null,
+        detection: null,
         uiStage: 'menu',
+        croppedAvatarUrl: null,
       };
     case 'begin-match':
       return {
@@ -56,14 +64,32 @@ function reducer(state: FaceUploadState, action: FaceUploadAction): FaceUploadSt
       return {
         ...state,
         uiStage: 'menu',
+        image: null,
+        detection: null,
+        croppedAvatarUrl: null,
+      };
+    case 'set-detection':
+      return {
+        ...state,
+        detection: action.detection,
+      };
+    case 'set-cropped-avatar-url':
+      return {
+        ...state,
+        croppedAvatarUrl: action.url,
+      };
+    case 'set-face-ball-mode':
+      return {
+        ...state,
+        faceBallMode: action.enabled,
+      };
+    case 'set-ui-stage':
+      return {
+        ...state,
+        uiStage: action.stage,
       };
     default:
       return state;
-    case 'set-detection':
-  return {
-    ...state,
-    detection: action.detection,
-  };
   }
 }
 
@@ -91,10 +117,25 @@ export function FaceUploadProvider({ children }: { children: ReactNode }) {
       beginMatch: () => dispatch({ type: 'begin-match' }),
       resetToMenu: () => dispatch({ type: 'reset-to-menu' }),
       setDetection: (detection) =>
-  dispatch({
-    type: 'set-detection',
-    detection,
-  }),
+        dispatch({
+          type: 'set-detection',
+          detection,
+        }),
+      setCroppedAvatarUrl: (url) =>
+        dispatch({
+          type: 'set-cropped-avatar-url',
+          url,
+        }),
+      setFaceBallMode: (enabled) =>
+        dispatch({
+          type: 'set-face-ball-mode',
+          enabled,
+        }),
+      setUiStage: (stage) =>
+        dispatch({
+          type: 'set-ui-stage',
+          stage,
+        }),
     }),
     [state],
   );
@@ -118,8 +159,4 @@ export function useFaceUploadStore() {
   }
 
   return context;
-}
-
-export function createFacePlayerProfile(displayName: string, avatarLabel: string, avatarUrl: string | null): FacePlayerProfile {
-  return { displayName, avatarLabel, avatarUrl };
 }

@@ -4,7 +4,16 @@ import { PONG_CONFIG } from '../config/pongConfig';
 import { BootScene } from '../scenes/BootScene';
 import { PongScene } from '../scenes/PongScene';
 
-export function createPongGame(parent: HTMLDivElement | null) {
+type PongGameConfig = {
+  croppedAvatarUrl: string | null;
+  faceBallMode: boolean;
+  onExit: () => void;
+};
+
+export function createPongGame(
+  parent: HTMLDivElement | null,
+  config: PongGameConfig
+) {
   if (!parent) {
     throw new Error('Cannot create the Pong game without a mount element.');
   }
@@ -12,7 +21,7 @@ export function createPongGame(parent: HTMLDivElement | null) {
   const width = parent.clientWidth || window.innerWidth;
   const height = parent.clientHeight || window.innerHeight;
 
-  return new Phaser.Game({
+  const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
     width,
@@ -35,4 +44,9 @@ export function createPongGame(parent: HTMLDivElement | null) {
     },
     scene: [BootScene, PongScene],
   });
+
+  // Save config into registry for scene access
+  game.registry.set('customConfig', config);
+
+  return game;
 }

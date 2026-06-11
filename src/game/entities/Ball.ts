@@ -13,7 +13,11 @@ export class Ball {
     this.scene = scene;
     this.ensureTexture();
 
-    this.sprite = this.scene.physics.add.image(x, y, BALL_TEXTURE_KEY);
+    const config = this.scene.registry.get('customConfig');
+    const useFaceBall = config?.faceBallMode && this.scene.textures.exists('face-ball');
+    const textureKey = useFaceBall ? 'face-ball' : BALL_TEXTURE_KEY;
+
+    this.sprite = this.scene.physics.add.image(x, y, textureKey);
     this.sprite.setCircle(PONG_CONFIG.ball.radius);
     this.sprite.setOrigin(0.5);
     this.sprite.setCollideWorldBounds(true);

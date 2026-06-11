@@ -70,8 +70,16 @@ export class GameHud {
     this.messageText.setAlpha(0);
     this.messageText.setLetterSpacing(1.5);
 
+    const config = this.scene.registry.get('customConfig');
+    const hasAvatar = config?.croppedAvatarUrl && this.scene.textures.exists('circular-avatar');
+
     this.topAvatar = this.createAvatarBadge('P2', 'TOP', PONG_CONFIG.colors.cyan);
-    this.bottomAvatar = this.createAvatarBadge('P1', 'BOTTOM', PONG_CONFIG.colors.pink);
+    this.bottomAvatar = this.createAvatarBadge(
+      'P1',
+      'BOTTOM',
+      PONG_CONFIG.colors.pink,
+      hasAvatar ? 'circular-avatar' : undefined
+    );
 
     const winBackdrop = this.scene.add.rectangle(0, 0, 440, 230, 0x050816, 0.92);
     winBackdrop.setFillStyle(0xfbf7ff, 0.94);
@@ -87,7 +95,7 @@ export class GameHud {
     this.winTitleText.setOrigin(0.5);
     this.winTitleText.setLetterSpacing(2);
 
-    this.winSubtitleText = this.scene.add.text(0, 28, 'MATCH POINT PLACEHOLDER', {
+    this.winSubtitleText = this.scene.add.text(0, 8, 'MATCH POINT PLACEHOLDER', {
       fontFamily: this.roundedFont,
       fontSize: '28px',
       color: '#7B5CE6',
@@ -97,7 +105,72 @@ export class GameHud {
     });
     this.winSubtitleText.setOrigin(0.5);
 
-    this.winPanel = this.scene.add.container(0, 0, [winBackdrop, this.winTitleText, this.winSubtitleText]);
+    // Interactive Buttons inside the win card
+    const playBg = this.scene.add.rectangle(-96, 68, 160, 40, 0x7b5ce6, 1);
+    playBg.setRounded(20);
+    playBg.setInteractive({ useHandCursor: true });
+
+    const playText = this.scene.add.text(-96, 68, 'PLAY AGAIN', {
+      fontFamily: this.roundedFont,
+      fontSize: '13px',
+      color: '#ffffff',
+      fontStyle: '700',
+    });
+    playText.setOrigin(0.5);
+
+    const exitBg = this.scene.add.rectangle(96, 68, 160, 40, 0xffffff, 1);
+    exitBg.setStrokeStyle(1.5, 0x7b5ce6, 1);
+    exitBg.setRounded(20);
+    exitBg.setInteractive({ useHandCursor: true });
+
+    const exitText = this.scene.add.text(96, 68, 'EXIT TO LOBBY', {
+      fontFamily: this.roundedFont,
+      fontSize: '13px',
+      color: '#7b5ce6',
+      fontStyle: '700',
+    });
+    exitText.setOrigin(0.5);
+
+    // Event listeners
+    playBg.on('pointerdown', () => {
+      this.scene.events.emit('rematch');
+    });
+
+    exitBg.on('pointerdown', () => {
+      const customConfig = this.scene.registry.get('customConfig');
+      if (customConfig?.onExit) {
+        customConfig.onExit();
+      }
+    });
+
+    // Hover effects
+    playBg.on('pointerover', () => {
+      playBg.setScale(1.04);
+      playText.setScale(1.04);
+    });
+    playBg.on('pointerout', () => {
+      playBg.setScale(1);
+      playText.setScale(1);
+    });
+
+    exitBg.on('pointerover', () => {
+      exitBg.setScale(1.04);
+      exitText.setScale(1.04);
+    });
+    exitBg.on('pointerout', () => {
+      exitBg.setScale(1);
+      exitText.setScale(1);
+    });
+
+    this.winPanel = this.scene.add.container(0, 0, [
+      winBackdrop,
+      this.winTitleText,
+      this.winSubtitleText,
+      playBg,
+      playText,
+      exitBg,
+      exitText,
+    ]);
     this.winPanel.setAlpha(0);
     this.winPanel.setScale(0.96);
 
@@ -207,20 +280,29 @@ export class GameHud {
     this.bottomAvatar.destroy();
   }
 
-  private createAvatarBadge(primary: string, secondary: string, tint: number) {
+  private createAvatarBadge(primary: string, secondary: string, tint: number, textureKey?: string) {
     const halo = this.scene.add.circle(0, 0, 26, tint, 0.18);
     halo.setStrokeStyle(2, tint, 0.55);
 
     const core = this.scene.add.circle(0, 0, 18, 0xffffff, 1);
     core.setStrokeStyle(2, tint, 0.65);
 
-    const initials = this.scene.add.text(0, -2, primary, {
-      fontFamily: this.roundedFont,
-      fontSize: '16px',
-      color: PONG_CONFIG.colors.text,
-      fontStyle: '700',
-    });
-    initials.setOrigin(0.5);
+    const children: Phaser.GameObjects.GameObject[] = [halo, core];
+
+    if (textureKey) {
+      const avatarSprite = this.scene.add.image(0, 0, textureKey);
+      avatarSprite.setDisplaySize(36, 36);
+      children.push(avatarSprite);
+    } else {
+      const initials = this.scene.add.text(0, -2, primary, {
+        fontFamily: this.roundedFont,
+        fontSize: '16px',
+        color: PONG_CONFIG.colors.text,
+        fontStyle: '700',
+      });
+      initials.setOrigin(0.5);
+      children.push(initials);
+    }
 
     const label = this.scene.add.text(0, 34, secondary, {
       fontFamily: this.roundedFont,
@@ -230,8 +312,9 @@ export class GameHud {
     });
     label.setOrigin(0.5);
     label.setLetterSpacing(1.4);
+    children.push(label);
 
-    const container = this.scene.add.container(0, 0, [halo, core, initials, label]);
+    const container = this.scene.add.container(0, 0, children);
     container.setScale(1);
     return container;
   }

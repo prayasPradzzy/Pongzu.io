@@ -69,6 +69,10 @@ export class PongScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
 
+    this.events.on('rematch', () => {
+      this.scoreManager.startMatch(Phaser.Math.Between(0, 1) === 0 ? 'up' : 'down');
+    });
+
     this.scoreManager.startMatch(Phaser.Math.Between(0, 1) === 0 ? 'up' : 'down');
   }
 
@@ -238,6 +242,7 @@ export class PongScene extends Phaser.Scene {
 
   private shutdown() {
     this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
+    this.events.off('rematch');
     this.effects.destroy();
     this.hud.destroy();
     this.arenaGraphics?.destroy();
