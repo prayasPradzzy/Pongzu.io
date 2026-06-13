@@ -19,9 +19,9 @@ export class GameHud {
   private readonly winTitleText: Phaser.GameObjects.Text;
   private readonly winSubtitleText: Phaser.GameObjects.Text;
   private readonly winStatsText: Phaser.GameObjects.Text;
-  private readonly topAvatar: Phaser.GameObjects.Container;
-  private readonly bottomAvatar: Phaser.GameObjects.Container;
-  private readonly scene: Phaser.Scene;
+  private readonly topNameLabel: Phaser.GameObjects.Text;
+  private readonly bottomNameLabel: Phaser.GameObjects.Text;
+  private readonly exitButtonContainer: Phaser.GameObjects.Container;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -78,92 +78,112 @@ export class GameHud {
     this.messageText.setLetterSpacing(1.5);
 
     const config = this.scene.registry.get('customConfig');
-    const hasAvatar = config?.croppedAvatarUrl && this.scene.textures.exists('circular-avatar');
+    const p1Name = config?.playerName || 'PLAYER';
+    const p2Name = config?.mode === 'online' ? (config?.opponentName || 'OPPONENT') : 'CPU';
 
-    this.topAvatar = this.createAvatarBadge('CPU', 'TOP', PONG_CONFIG.colors.cyan);
-    this.bottomAvatar = this.createAvatarBadge(
-      'P1',
-      'BOTTOM',
-      PONG_CONFIG.colors.pink,
-      hasAvatar ? 'circular-avatar' : undefined
-    );
+    this.topNameLabel = this.createNameLabel(p2Name, PONG_CONFIG.colors.cyan);
+    this.bottomNameLabel = this.createNameLabel(p1Name, PONG_CONFIG.colors.pink);
+
+    // Build exit button
+    const exitBg = this.scene.add.circle(0, 0, 16, 0x000000, 0.2);
+    exitBg.setInteractive({ useHandCursor: true });
+    
+    const exitText = this.scene.add.text(0, 0, '✕', {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '18px',
+      color: '#ffffff',
+      fontStyle: 'bold',
+    });
+    exitText.setOrigin(0.5);
+    
+    this.exitButtonContainer = this.scene.add.container(0, 0, [exitBg, exitText]);
+    this.exitButtonContainer.setAlpha(0.6);
+    this.exitButtonContainer.setDepth(100);
+    
+    exitBg.on('pointerover', () => { this.exitButtonContainer.setAlpha(1); exitBg.setScale(1.1); exitText.setScale(1.1); });
+    exitBg.on('pointerout', () => { this.exitButtonContainer.setAlpha(0.6); exitBg.setScale(1); exitText.setScale(1); });
+    exitBg.on('pointerdown', () => { this.scene.events.emit('exit-match'); });
 
     // Build win panel
-    const winBackdrop = this.scene.add.rectangle(0, 0, 440, 320, 0x050816, 0.92);
+    const winBackdrop = this.scene.add.rectangle(0, 0, 440, 380, 0x050816, 0.92);
     winBackdrop.setFillStyle(0xfbf7ff, 0.96);
     winBackdrop.setStrokeStyle(2, 0xffb7e1, 0.7);
     winBackdrop.setRounded(24);
 
-    this.winTitleText = this.scene.add.text(0, -106, 'VICTORY', {
+    this.winTitleText = this.scene.add.text(0, -126, 'VICTORY', {
       fontFamily: this.roundedFont,
-      fontSize: '14px',
+      fontSize: '20px',
       color: '#7B5CE6',
-      fontStyle: '700',
+      fontStyle: '800',
     });
     this.winTitleText.setOrigin(0.5);
-    this.winTitleText.setLetterSpacing(3);
+    this.winTitleText.setLetterSpacing(4);
 
-    this.winSubtitleText = this.scene.add.text(0, -76, 'YOU WIN!', {
+    this.winSubtitleText = this.scene.add.text(0, -88, 'YOU WIN!', {
       fontFamily: this.roundedFont,
-      fontSize: '28px',
+      fontSize: '32px',
       color: '#7B5CE6',
-      fontStyle: '700',
+      fontStyle: '800',
       align: 'center',
       wordWrap: { width: 360 },
     });
     this.winSubtitleText.setOrigin(0.5);
 
-    this.winStatsText = this.scene.add.text(0, -22, '', {
+    this.winStatsText = this.scene.add.text(0, -28, '', {
       fontFamily: this.roundedFont,
-      fontSize: '14px',
+      fontSize: '15px',
       color: '#9A84E8',
       fontStyle: '600',
       align: 'center',
-      lineSpacing: 6,
+      lineSpacing: 8,
     });
     this.winStatsText.setOrigin(0.5);
+    
+    const divider = this.scene.add.rectangle(0, 30, 320, 2, 0xc8b6ff, 0.3);
 
-    // 3 buttons: Play Again, Change Difficulty, New Face
-    const playBg = this.scene.add.rectangle(0, 46, 280, 38, 0x7b5ce6, 1);
-    playBg.setRounded(19);
+    const isOnline = config?.mode === 'online';
+
+    // Buttons
+    const playBg = this.scene.add.rectangle(0, 76, 280, 42, 0x7b5ce6, 1);
+    playBg.setRounded(21);
     playBg.setInteractive({ useHandCursor: true });
 
-    const playText = this.scene.add.text(0, 46, 'PLAY AGAIN', {
+    const playText = this.scene.add.text(0, 76, 'PLAY AGAIN', {
       fontFamily: this.roundedFont,
-      fontSize: '12px',
+      fontSize: '13px',
       color: '#ffffff',
-      fontStyle: '700',
+      fontStyle: '800',
     });
     playText.setOrigin(0.5);
-    playText.setLetterSpacing(1);
+    playText.setLetterSpacing(1.5);
 
-    const diffBg = this.scene.add.rectangle(0, 92, 280, 38, 0xffffff, 1);
-    diffBg.setStrokeStyle(1.5, 0x7b5ce6, 1);
-    diffBg.setRounded(19);
+    const diffBg = this.scene.add.rectangle(0, 128, 280, 42, 0xffffff, 1);
+    diffBg.setStrokeStyle(2, 0x7b5ce6, 1);
+    diffBg.setRounded(21);
     diffBg.setInteractive({ useHandCursor: true });
 
-    const diffText = this.scene.add.text(0, 92, 'CHANGE DIFFICULTY', {
+    const diffText = this.scene.add.text(0, 128, 'CHANGE DIFFICULTY', {
       fontFamily: this.roundedFont,
-      fontSize: '12px',
+      fontSize: '13px',
       color: '#7b5ce6',
-      fontStyle: '700',
+      fontStyle: '800',
     });
     diffText.setOrigin(0.5);
-    diffText.setLetterSpacing(1);
+    diffText.setLetterSpacing(1.5);
 
-    const faceBg = this.scene.add.rectangle(0, 132, 280, 38, 0xffffff, 1);
-    faceBg.setStrokeStyle(1.5, 0xff8dc7, 1);
-    faceBg.setRounded(19);
-    faceBg.setInteractive({ useHandCursor: true });
+    const returnBg = this.scene.add.rectangle(0, isOnline ? 128 : 180, 280, 42, 0xffffff, 1);
+    returnBg.setStrokeStyle(2, 0xff8dc7, 1);
+    returnBg.setRounded(21);
+    returnBg.setInteractive({ useHandCursor: true });
 
-    const faceText = this.scene.add.text(0, 132, 'NEW FACE', {
+    const returnText = this.scene.add.text(0, isOnline ? 128 : 180, 'RETURN TO MENU', {
       fontFamily: this.roundedFont,
-      fontSize: '12px',
+      fontSize: '13px',
       color: '#ff8dc7',
-      fontStyle: '700',
+      fontStyle: '800',
     });
-    faceText.setOrigin(0.5);
-    faceText.setLetterSpacing(1);
+    returnText.setOrigin(0.5);
+    returnText.setLetterSpacing(1.5);
 
     // Event listeners
     playBg.on('pointerdown', () => {
@@ -177,11 +197,8 @@ export class GameHud {
       }
     });
 
-    faceBg.on('pointerdown', () => {
-      const customConfig = this.scene.registry.get('customConfig');
-      if (customConfig?.onExit) {
-        customConfig.onExit();
-      }
+    returnBg.on('pointerdown', () => {
+      this.scene.events.emit('exit-match');
     });
 
     // Hover effects
@@ -191,22 +208,31 @@ export class GameHud {
     };
     addHover(playBg, playText);
     addHover(diffBg, diffText);
-    addHover(faceBg, faceText);
+    addHover(returnBg, returnText);
 
-    this.winPanel = this.scene.add.container(0, 0, [
+    const winPanelChildren: any[] = [
       winBackdrop,
       this.winTitleText,
       this.winSubtitleText,
       this.winStatsText,
+      divider,
       playBg,
       playText,
-      diffBg,
-      diffText,
-      faceBg,
-      faceText,
-    ]);
+      returnBg,
+      returnText,
+    ];
+    
+    if (!isOnline) {
+      winPanelChildren.push(diffBg, diffText);
+    } else {
+      diffBg.destroy();
+      diffText.destroy();
+    }
+
+    this.winPanel = this.scene.add.container(0, 0, winPanelChildren);
     this.winPanel.setAlpha(0);
     this.winPanel.setScale(0.96);
+    this.winPanel.setDepth(50);
 
   }
 
@@ -217,11 +243,12 @@ export class GameHud {
     this.pointText.setPosition(width / 2, height / 2 + 74);
     this.messageText.setPosition(width / 2, height / 2 + 112);
     this.winPanel.setPosition(width / 2, height / 2 - 8);
+    this.exitButtonContainer.setPosition(width - 32, 32);
   }
 
-  setAvatarPositions(topX: number, bottomX: number, topY: number, bottomY: number) {
-    this.topAvatar.setPosition(topX, topY - 48);
-    this.bottomAvatar.setPosition(bottomX, bottomY + 48);
+  setNamePositions(topX: number, bottomX: number, topY: number, bottomY: number) {
+    this.topNameLabel.setPosition(topX, topY - 32);
+    this.bottomNameLabel.setPosition(bottomX, bottomY + 32);
   }
 
   setScore(topScore: number, bottomScore: number) {
@@ -338,8 +365,9 @@ export class GameHud {
     this.pointText.destroy();
     this.messageText.destroy();
     this.winPanel.destroy();
-    this.topAvatar.destroy();
-    this.bottomAvatar.destroy();
+    this.topNameLabel.destroy();
+    this.bottomNameLabel.destroy();
+    this.exitButtonContainer.destroy();
   }
 
   private persistStats(outcome: 'victory' | 'defeat', stats: MatchStats, difficulty: Difficulty) {
@@ -369,42 +397,21 @@ export class GameHud {
     }
   }
 
-  private createAvatarBadge(primary: string, secondary: string, tint: number, textureKey?: string) {
-    const halo = this.scene.add.circle(0, 0, 26, tint, 0.18);
-    halo.setStrokeStyle(2, tint, 0.55);
-
-    const core = this.scene.add.circle(0, 0, 18, 0xffffff, 1);
-    core.setStrokeStyle(2, tint, 0.65);
-
-    const children: Phaser.GameObjects.GameObject[] = [halo, core];
-
-    if (textureKey) {
-      const avatarSprite = this.scene.add.image(0, 0, textureKey);
-      avatarSprite.setDisplaySize(36, 36);
-      children.push(avatarSprite);
-    } else {
-      const initials = this.scene.add.text(0, -2, primary, {
-        fontFamily: this.roundedFont,
-        fontSize: '16px',
-        color: PONG_CONFIG.colors.text,
-        fontStyle: '700',
-      });
-      initials.setOrigin(0.5);
-      children.push(initials);
-    }
-
-    const label = this.scene.add.text(0, 34, secondary, {
+  private createNameLabel(name: string, color: number) {
+    const label = this.scene.add.text(0, 0, name.toUpperCase(), {
       fontFamily: this.roundedFont,
-      fontSize: '11px',
-      color: tint === PONG_CONFIG.colors.cyan ? '#8b71ff' : '#ff8dc7',
-      fontStyle: '700',
+      fontSize: '18px',
+      color: '#ffffff',
+      fontStyle: '800',
     });
     label.setOrigin(0.5);
-    label.setLetterSpacing(1.4);
-    children.push(label);
-
-    const container = this.scene.add.container(0, 0, children);
-    container.setScale(1);
-    return container;
+    label.setLetterSpacing(2);
+    label.setShadow(0, 2, '#000000', 4, false, true);
+    label.setAlpha(0.8);
+    // Tint color isn't perfectly applied to text in the same way, but we can set the color string
+    const hexColor = '#' + color.toString(16).padStart(6, '0');
+    label.setColor(hexColor);
+    
+    return label;
   }
 }

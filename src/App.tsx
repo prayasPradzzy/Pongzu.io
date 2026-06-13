@@ -1,5 +1,12 @@
 import { PhaserStage } from './game/PhaserStage';
-import { FaceUploadMenu, FaceUploadProvider, useFaceUploadStore } from './features/faceUpload';
+import { FaceUploadProvider, useFaceUploadStore } from './features/faceUpload';
+import { MainMenu } from './features/menu/components/MainMenu';
+import { CpuSetupScreen } from './features/menu/components/CpuSetupScreen';
+import { MultiplayerMenu } from './features/menu/components/MultiplayerMenu';
+import { CreateSetupScreen } from './features/menu/components/CreateSetupScreen';
+import { JoinSetupScreen } from './features/menu/components/JoinSetupScreen';
+import { StatsScreen } from './features/menu/components/StatsScreen';
+import { LobbyScreen } from './features/multiplayer/components/LobbyScreen';
 
 function AppContent() {
   const { uiStage } = useFaceUploadStore();
@@ -7,7 +14,14 @@ function AppContent() {
   return (
     <main className="app-root">
       <div className="game-shell">
-        {uiStage === 'playing' ? <PhaserStage /> : <FaceUploadMenu onStartGame={() => undefined} />}
+        {uiStage === 'mainMenu' && <MainMenu />}
+        {uiStage === 'cpuSetup' && <CpuSetupScreen />}
+        {uiStage === 'multiplayerMenu' && <MultiplayerMenu />}
+        {uiStage === 'createSetup' && <CreateSetupScreen />}
+        {uiStage === 'joinSetup' && <JoinSetupScreen />}
+        {uiStage === 'lobby' && <LobbyScreen />}
+        {uiStage === 'stats' && <StatsScreen />}
+        {uiStage === 'playing' && <PhaserStage />}
       </div>
     </main>
   );

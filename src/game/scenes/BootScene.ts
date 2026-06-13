@@ -18,32 +18,33 @@ export class BootScene extends Phaser.Scene {
     if (config?.croppedAvatarUrl && this.textures.exists('user-avatar')) {
       const sourceImage = this.textures.get('user-avatar').getSourceImage() as HTMLImageElement;
       
-      // 1. Generate circular avatar texture (256x256)
-      const canvasTexture = this.textures.createCanvas('circular-avatar', 256, 256);
-      if (canvasTexture) {
-        const ctx = canvasTexture.getContext();
-        ctx.beginPath();
-        ctx.arc(128, 128, 128, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-        ctx.drawImage(sourceImage, 0, 0, 256, 256);
-        canvasTexture.refresh();
-      }
-
-      // 2. Generate circular face-ball texture matching ball size (diameter = radius * 2)
-      const ballDiameter = PONG_CONFIG.ball.radius * 2;
-      const ballCanvas = this.textures.createCanvas('face-ball', ballDiameter, ballDiameter);
+      // Generate high-res circular face-ball texture (128x128)
+      // This will be scaled down visually by Ball.ts but kept crisp
+      const faceSize = 128;
+      const ballCanvas = this.textures.createCanvas('face-ball', faceSize, faceSize);
       if (ballCanvas) {
         const ctx = ballCanvas.getContext();
         ctx.beginPath();
-        ctx.arc(PONG_CONFIG.ball.radius, PONG_CONFIG.ball.radius, PONG_CONFIG.ball.radius, 0, Math.PI * 2);
+        ctx.arc(faceSize / 2, faceSize / 2, faceSize / 2, 0, Math.PI * 2);
         ctx.closePath();
         ctx.clip();
-        ctx.drawImage(sourceImage, 0, 0, ballDiameter, ballDiameter);
+        ctx.drawImage(sourceImage, 0, 0, faceSize, faceSize);
+        
+        // Draw subtle physics ring (since visual radius = 2.0 * physics radius, ring is at 1/2 of faceSize / 2)
+        ctx.beginPath();
+        ctx.arc(faceSize / 2, faceSize / 2, faceSize / 4, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        
         ballCanvas.refresh();
       }
     }
 
-    this.scene.start('pong');
+    if (config?.mode === 'online') {
+      this.scene.start('online-pong');
+    } else {
+      this.scene.start('pong');
+    }
   }
 }

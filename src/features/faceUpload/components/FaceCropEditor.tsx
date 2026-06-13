@@ -196,9 +196,9 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
   return (
     <div className="crop-editor-overlay">
       <div className="crop-editor">
-        <h2 className="crop-editor__title">Crop Your Avatar Badge</h2>
+        <h2 className="crop-editor__title">Crop Your Face Ball 🤪</h2>
         <p className="crop-editor__subtitle">
-          Drag the photo to center your face inside the crop circle. Use the slider to zoom.
+          Drag the photo to center your face inside the circle. Use the slider to zoom.
         </p>
 
         <div className="crop-editor__viewport-wrapper">

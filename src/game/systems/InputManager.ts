@@ -6,7 +6,10 @@ export class InputManager {
   private readonly bottomLeft: Phaser.Input.Keyboard.Key;
   private readonly bottomRight: Phaser.Input.Keyboard.Key;
 
+  private readonly scene: Phaser.Scene;
+
   constructor(scene: Phaser.Scene) {
+    this.scene = scene;
     const keyboard = scene.input.keyboard;
 
     if (!keyboard) {
@@ -19,6 +22,14 @@ export class InputManager {
 
   getBottomDirection() {
     return this.readDirection(this.bottomLeft.isDown, this.bottomRight.isDown);
+  }
+
+  getPointerX(): number | null {
+    const pointer = this.scene.input.activePointer;
+    if (pointer && pointer.isDown) {
+      return pointer.x;
+    }
+    return null;
   }
 
   private readDirection(leftPressed: boolean, rightPressed: boolean): HorizontalDirection {

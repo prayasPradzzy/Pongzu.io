@@ -19,6 +19,13 @@ export class Ball {
 
     this.sprite = this.scene.physics.add.image(x, y, textureKey);
     this.sprite.setCircle(PONG_CONFIG.ball.radius);
+    
+    if (useFaceBall) {
+      // Make face-ball larger visually so it is recognizable (2x physics radius)
+      const visualRadius = PONG_CONFIG.ball.radius * 2.0;
+      this.sprite.setDisplaySize(visualRadius * 2, visualRadius * 2);
+    }
+    
     this.sprite.setOrigin(0.5);
     this.sprite.setCollideWorldBounds(true);
     this.sprite.setBounce(1, 1);

@@ -84,7 +84,8 @@ export function FaceUploadMenu({
   }, [image, uiStage, detection, setDetection]);
 
   const handleStart = () => {
-    beginMatch();
+    // Route to mode selection (CPU vs Online) instead of starting immediately
+    setUiStage('modeSelect');
     onStartGame();
   };
 

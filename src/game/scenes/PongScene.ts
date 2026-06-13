@@ -79,6 +79,13 @@ export class PongScene extends Phaser.Scene {
       this.scoreManager.startMatch(Phaser.Math.Between(0, 1) === 0 ? 'up' : 'down');
     });
 
+    this.events.on('exit-match', () => {
+      const customConfig = this.registry.get('customConfig');
+      if (customConfig?.onExit) {
+        customConfig.onExit();
+      }
+    });
+
     this.scoreManager.startMatch(Phaser.Math.Between(0, 1) === 0 ? 'up' : 'down');
   }
 
@@ -87,7 +94,17 @@ export class PongScene extends Phaser.Scene {
     const height = this.scale.height;
 
     // Player controls bottom paddle
-    this.bottomPaddle.setHorizontalVelocity(this.inputManager.getBottomDirection());
+    const targetX = this.inputManager.getPointerX();
+    if (targetX !== null) {
+      const diff = targetX - this.bottomPaddle.getX();
+      if (Math.abs(diff) > 4) {
+        this.bottomPaddle.setHorizontalVelocity(Math.sign(diff));
+      } else {
+        this.bottomPaddle.setHorizontalVelocity(0);
+      }
+    } else {
+      this.bottomPaddle.setHorizontalVelocity(this.inputManager.getBottomDirection());
+    }
 
     // CPU controls top paddle
     this.cpuController.update(this.topPaddle, this.ball, width);
@@ -96,7 +113,7 @@ export class PongScene extends Phaser.Scene {
     this.bottomPaddle.clampToBounds(width);
     this.effects.trackBall(this.ball.getX(), this.ball.getY());
     this.effects.updateGlow(this.ball.getX(), this.ball.getY(), this.time.now);
-    this.hud.setAvatarPositions(
+    this.hud.setNamePositions(
       this.topPaddle.getX(),
       this.bottomPaddle.getX(),
       PONG_CONFIG.paddle.topOffset,
@@ -253,6 +270,7 @@ export class PongScene extends Phaser.Scene {
   private shutdown() {
     this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
     this.events.off('rematch');
+    this.events.off('exit-match');
     this.effects.destroy();
     this.hud.destroy();
     this.arenaGraphics?.destroy();
