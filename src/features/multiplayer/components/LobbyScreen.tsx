@@ -10,11 +10,11 @@ type LobbyPhase =
 
 export function LobbyScreen() {
   const {
-    croppedAvatarUrl,
+    // croppedAvatarUrl,
     multiplayerRole,
     roomCode,
     opponentName,
-    opponentAvatarUrl,
+    // opponentAvatarUrl,
     playerName,
     setMultiplayerRole,
     setRoomCode,
@@ -82,7 +82,7 @@ export function LobbyScreen() {
     return () => {
       socketService.offAll();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleReady = () => {

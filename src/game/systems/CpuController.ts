@@ -5,12 +5,15 @@ import type { Paddle } from '../entities/Paddle';
 import type { Ball } from '../entities/Ball';
 
 export class CpuController {
+  private readonly scene: Phaser.Scene;
   private readonly preset;
+
   private targetX: number;
   private lastUpdateTime = 0;
   private errorOffset = 0;
 
-  constructor(private readonly scene: Phaser.Scene, difficulty: Difficulty) {
+  constructor(scene: Phaser.Scene, difficulty: Difficulty) {
+    this.scene = scene;
     this.preset = DIFFICULTY_PRESETS[difficulty];
     this.targetX = scene.scale.width / 2;
   }

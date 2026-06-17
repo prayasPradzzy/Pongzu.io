@@ -20,7 +20,6 @@ export function FaceUploadMenu({
     faceBallMode,
     selectImage,
     clearImage,
-    beginMatch,
     setDetection,
     setCroppedAvatarUrl,
     setFaceBallMode,

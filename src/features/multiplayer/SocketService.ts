@@ -27,7 +27,7 @@ import {
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
-class SocketService {
+export class SocketService {
   private socket: Socket | null = null;
   private _status: ConnectionStatus = 'idle';
   private statusListeners: Array<(s: ConnectionStatus) => void> = [];

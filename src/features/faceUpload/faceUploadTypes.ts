@@ -6,6 +6,12 @@ export type UiStage =
   | 'joinSetup'
   | 'lobby'
   | 'playing'
+  | 'crop'
+  | 'faceBall'
+  | 'gameOver'
+  | 'modeSelect'
+  | 'ready'
+  | 'menu'
   | 'stats';
 
 export type FaceUploadState = {
