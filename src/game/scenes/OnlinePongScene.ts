@@ -31,6 +31,7 @@ export class OnlinePongScene extends Phaser.Scene {
   private frameGraphics!: Phaser.GameObjects.Graphics;
   private sparkleGraphics!: Phaser.GameObjects.Graphics;
   private cloudGraphics!: Phaser.GameObjects.Graphics;
+  private petalGraphics!: Phaser.GameObjects.Graphics;
 
   private netInput!: NetworkInputEmitter;
   private reconcBuffer!: ReconciliationBuffer;
@@ -214,12 +215,18 @@ export class OnlinePongScene extends Phaser.Scene {
 
     svc.onPlayerDisconnected(({ role }) => {
       this.isDisconnected = true;
-      this.showDisconnectOverlay(role === this.role ? 'You disconnected' : 'Opponent disconnected…\nWaiting 10s for reconnect.');
+      this.showDisconnectOverlay(role === this.role ? 'You disconnected' : 'Opponent disconnected…', true);
     });
 
     svc.onPlayerReconnected(() => {
       this.isDisconnected = false;
       this.hideDisconnectOverlay();
+      this.reconcBuffer.clear(); // clear stale buffer on reconnect
+    });
+
+    svc.onRoomClosed(({ reason }) => {
+      this.isDisconnected = true; // stops processing
+      this.showDisconnectOverlay(reason || 'Room closed', false);
     });
 
     // Win panel rematch button wires through socket
@@ -240,7 +247,7 @@ export class OnlinePongScene extends Phaser.Scene {
 
   // ─── Disconnect overlay ────────────────────────────────────────────────────
 
-  private showDisconnectOverlay(message: string) {
+  private showDisconnectOverlay(message: string, showCountdown: boolean) {
     if (this.disconnectOverlay) return;
 
     const { width, height } = this.scale;
@@ -258,13 +265,17 @@ export class OnlinePongScene extends Phaser.Scene {
     txt.setOrigin(0.5);
 
     let secondsLeft = 15;
-    const countdownTxt = this.add.text(0, -10, `Waiting ${secondsLeft}s for reconnect...`, {
-      fontFamily: 'Nunito, system-ui, sans-serif',
-      fontSize: '14px',
-      color: '#ffb7e1',
-      align: 'center',
-    });
-    countdownTxt.setOrigin(0.5);
+    let countdownTxt: Phaser.GameObjects.Text | null = null;
+    
+    if (showCountdown) {
+      countdownTxt = this.add.text(0, -10, `Waiting ${secondsLeft}s for reconnect...`, {
+        fontFamily: 'Nunito, system-ui, sans-serif',
+        fontSize: '14px',
+        color: '#ffb7e1',
+        align: 'center',
+      });
+      countdownTxt.setOrigin(0.5);
+    }
 
     const returnBg = this.add.rectangle(0, 50, 280, 42, 0xffffff, 1);
     returnBg.setStrokeStyle(2, 0xff8dc7, 1);
@@ -287,20 +298,26 @@ export class OnlinePongScene extends Phaser.Scene {
     returnBg.on('pointerover', () => { returnBg.setScale(1.03); returnText.setScale(1.03); });
     returnBg.on('pointerout', () => { returnBg.setScale(1); returnText.setScale(1); });
 
-    this.disconnectOverlay = this.add.container(width / 2, height / 2, [bg, txt, countdownTxt, returnBg, returnText]);
+    const overlayElements: Phaser.GameObjects.GameObject[] = [bg, txt, returnBg, returnText];
+    if (countdownTxt) overlayElements.push(countdownTxt);
+
+    this.disconnectOverlay = this.add.container(width / 2, height / 2, overlayElements);
     this.disconnectOverlay.setDepth(100);
 
-    this.disconnectTimerEvent = this.time.addEvent({
-      delay: 1000,
-      repeat: 14,
-      callback: () => {
-        secondsLeft--;
-        countdownTxt.setText(`Waiting ${secondsLeft}s for reconnect...`);
-        if (secondsLeft <= 0) {
-          this.events.emit('exit-match');
-        }
-      },
-    });
+    if (showCountdown) {
+      this.disconnectTimerEvent = this.time.addEvent({
+        delay: 1000,
+        repeat: 14,
+        callback: () => {
+          secondsLeft--;
+          if (countdownTxt) countdownTxt.setText(`Waiting ${secondsLeft}s for reconnect...`);
+          if (secondsLeft <= 0) {
+            // we'll actually let the server MatchOver handle the real win, but exit as fallback
+            this.events.emit('exit-match');
+          }
+        },
+      });
+    }
   }
 
   private hideDisconnectOverlay() {
@@ -372,7 +389,9 @@ export class OnlinePongScene extends Phaser.Scene {
     cloudLayer.fillEllipse(width * 0.27, cy + 16, 220, 52);
     cloudLayer.fillEllipse(width * 0.76, cy + 6, 180, 44);
     cloudLayer.fillEllipse(width * 0.68, cy + 22, 240, 56);
-    const petals = this.add.graphics();
+    if (!this.petalGraphics) this.petalGraphics = this.add.graphics();
+    const petals = this.petalGraphics;
+    petals.clear();
     petals.fillStyle(0xffb7e1, 0.11);
     petals.fillEllipse(width * 0.1, height * 0.78, 18, 8);
     petals.fillEllipse(width * 0.82, height * 0.22, 20, 9);
@@ -402,6 +421,7 @@ export class OnlinePongScene extends Phaser.Scene {
     this.frameGraphics?.destroy();
     this.sparkleGraphics?.destroy();
     this.cloudGraphics?.destroy();
+    this.petalGraphics?.destroy();
     this.disconnectOverlay?.destroy();
   }
 }

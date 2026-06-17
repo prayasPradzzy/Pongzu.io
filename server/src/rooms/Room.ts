@@ -1,4 +1,5 @@
 import type { Server, Socket } from 'socket.io';
+import { randomUUID } from 'crypto';
 import {
   SERVER_EVENTS,
   type Role,
@@ -27,6 +28,7 @@ export type PlayerSlot = {
   avatarDataUrl: string | null;
   ready: boolean;
   rematchVote: boolean;
+  reconnectToken: string;
 };
 
 export type RoomState =
@@ -47,6 +49,7 @@ export class Room {
   private ball: ServerBallSimulator;
   private scoreManager: ServerScoreManager;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
+  private pendingTimers: ReturnType<typeof setTimeout>[] = [];
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private rematchTimer: ReturnType<typeof setTimeout> | null = null;
   private tickSeq = 0;
@@ -75,6 +78,7 @@ export class Room {
       avatarDataUrl,
       ready: false,
       rematchVote: false,
+      reconnectToken: randomUUID(),
     };
     socket.join(this.code);
   }
@@ -90,6 +94,7 @@ export class Room {
       avatarDataUrl,
       ready: false,
       rematchVote: false,
+      reconnectToken: randomUUID(),
     };
     socket.join(this.code);
     this.state = 'ready_check';
@@ -135,11 +140,21 @@ export class Room {
       return;
     }
 
-    // Mid-game: open grace window
+    // Mid-game: handle depending on role
     if (this.state === 'active' || this.state === 'round_paused' || this.state === 'countdown') {
       this.stopTick();
-      this.state = 'disconnected';
+      
+      if (player.role === 'host') {
+        // Host disconnects -> room closed immediately
+        if (opponent) {
+          this.io.to(opponent.socketId).emit(SERVER_EVENTS.ROOM_CLOSED, { reason: 'Host disconnected' });
+        }
+        this.destroy();
+        return;
+      }
 
+      // Guest disconnects -> open grace window
+      this.state = 'disconnected';
       if (opponent) {
         this.io.to(opponent.socketId).emit(SERVER_EVENTS.PLAYER_DISCONNECTED, {
           role: player.role,
@@ -158,7 +173,8 @@ export class Room {
           });
         }
         this.destroy();
-      }, DISCONNECT_GRACE_MS);
+      }, 15_000); // 15s grace
+      this.pendingTimers.push(this.disconnectTimer);
     }
 
     // Match over stage — just destroy
@@ -167,8 +183,8 @@ export class Room {
     }
   }
 
-  handleRejoin(socket: Socket) {
-    const player = this.getPlayerBySocketId(socket.id);
+  handleRejoin(socket: Socket, token: string) {
+    const player = this.getPlayerByToken(token);
     if (!player || this.state !== 'disconnected') return;
 
     // Clear grace timer
@@ -236,10 +252,23 @@ export class Room {
     return this.host !== null && this.guest !== null;
   }
 
+  clearAllTimers() {
+    this.pendingTimers.forEach(clearTimeout);
+    this.pendingTimers = [];
+    if (this.disconnectTimer) {
+      clearTimeout(this.disconnectTimer);
+      this.disconnectTimer = null;
+    }
+    if (this.rematchTimer) {
+      clearTimeout(this.rematchTimer);
+      this.rematchTimer = null;
+    }
+  }
+
   destroy() {
+    this.state = 'match_over'; // prevent timer callbacks
     this.stopTick();
-    if (this.disconnectTimer) clearTimeout(this.disconnectTimer);
-    if (this.rematchTimer) clearTimeout(this.rematchTimer);
+    this.clearAllTimers();
     this.onDestroy(this.code);
   }
 
@@ -269,10 +298,11 @@ export class Room {
     let idx = 0;
 
     const tick = () => {
+      if (this.state === 'match_over') return;
       if (idx < ticks.length) {
         this.io.to(this.code).emit(SERVER_EVENTS.GAME_COUNTDOWN, { value: ticks[idx] });
         idx++;
-        setTimeout(tick, SERVER_PONG_CONFIG.countdownMs);
+        this.pendingTimers.push(setTimeout(tick, SERVER_PONG_CONFIG.countdownMs));
       } else {
         this.startRound(serveDir);
       }
@@ -422,16 +452,19 @@ export class Room {
 
       // Auto-destroy room after rematch timeout
       this.rematchTimer = setTimeout(() => {
+        if (this.state !== 'match_over') return;
         this.destroy();
       }, REMATCH_TIMEOUT_MS);
+      this.pendingTimers.push(this.rematchTimer);
       return;
     }
 
     // Pause then start next round
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       if (this.state !== 'round_paused') return;
       this.runCountdownThenServe(result.nextServe);
     }, SERVER_PONG_CONFIG.pointPauseMs);
+    this.pendingTimers.push(timer);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -466,5 +499,11 @@ export class Room {
 
   private getPlayerBySocketId(socketId: string): PlayerSlot | null {
     return this.getPlayerBySocket(socketId);
+  }
+
+  getPlayerByToken(token: string): PlayerSlot | null {
+    if (this.host?.reconnectToken === token) return this.host;
+    if (this.guest?.reconnectToken === token) return this.guest;
+    return null;
   }
 }

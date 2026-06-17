@@ -37,7 +37,7 @@ export type InputUpdatePayload = {
 };
 
 export type MatchRejoinPayload = {
-  code: string;
+  token: string;
 };
 
 export type PingPayload = {
@@ -64,12 +64,14 @@ export const SERVER_EVENTS = {
   PLAYER_DISCONNECTED: 'player:disconnected',
   PLAYER_RECONNECTED: 'player:reconnected',
   MATCH_STATE_CHANGE: 'match:state_change',
+  ROOM_CLOSED: 'room:closed',
   PONG: 'pong',
 } as const;
 
 export type RoomCreatedPayload = {
   code: string;
   role: Role;
+  reconnectToken: string;
 };
 
 export type RoomJoinedPayload = {
@@ -77,6 +79,7 @@ export type RoomJoinedPayload = {
   role: Role;
   opponentName: string;
   opponentAvatarUrl: string | null;
+  reconnectToken: string;
 };
 
 export type RoomOpponentJoinedPayload = {
@@ -151,4 +154,8 @@ export type PongPayload = {
 
 export type MatchStateChangePayload = {
   state: MatchState;
+};
+
+export type RoomClosedPayload = {
+  reason?: string;
 };

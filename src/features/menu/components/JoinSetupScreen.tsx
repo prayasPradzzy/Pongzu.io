@@ -10,9 +10,10 @@ export function JoinSetupScreen() {
     setPlayerName,
     setGameMode,
     setUiStage,
+    roomCode,
   } = useFaceUploadStore();
 
-  const [joinCode, setJoinCode] = useState('');
+  const [joinCode, setJoinCode] = useState(roomCode || '');
   const [error, setError] = useState<string | null>(null);
 
   const handleJoin = () => {
@@ -56,6 +57,7 @@ export function JoinSetupScreen() {
             maxLength={4}
             placeholder="XXXX"
             value={joinCode}
+            disabled={!!roomCode}
             onChange={(e) => {
               setJoinCode(e.target.value.toUpperCase());
               setError(null);

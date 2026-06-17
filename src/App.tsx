@@ -8,6 +8,9 @@ import { JoinSetupScreen } from './features/menu/components/JoinSetupScreen';
 import { StatsScreen } from './features/menu/components/StatsScreen';
 import { LobbyScreen } from './features/multiplayer/components/LobbyScreen';
 
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { JoinRouteHandler } from './features/menu/components/JoinRouteHandler';
+
 function AppContent() {
   const { uiStage } = useFaceUploadStore();
 
@@ -29,9 +32,14 @@ function AppContent() {
 
 function App() {
   return (
-    <FaceUploadProvider>
-      <AppContent />
-    </FaceUploadProvider>
+    <BrowserRouter>
+      <FaceUploadProvider>
+        <Routes>
+          <Route path="/join/:roomCode" element={<JoinRouteHandler />} />
+          <Route path="/" element={<AppContent />} />
+        </Routes>
+      </FaceUploadProvider>
+    </BrowserRouter>
   );
 }
 

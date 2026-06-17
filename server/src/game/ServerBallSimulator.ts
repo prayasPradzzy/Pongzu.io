@@ -18,7 +18,7 @@ export const SERVER_PONG_CONFIG = {
     boostEveryHits: 4,
     maxSpeed: 980,
   },
-  pointPauseMs: 1500,
+  pointPauseMs: 1200,
   countdownMs: 500, // ms per countdown tick
 } as const;
 

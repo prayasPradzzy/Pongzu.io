@@ -23,6 +23,7 @@ export class PongScene extends Phaser.Scene {
   private frameGraphics!: Phaser.GameObjects.Graphics;
   private sparkleGraphics!: Phaser.GameObjects.Graphics;
   private cloudGraphics!: Phaser.GameObjects.Graphics;
+  private petalGraphics!: Phaser.GameObjects.Graphics;
 
   constructor() {
     super('pong');
@@ -261,12 +262,15 @@ export class PongScene extends Phaser.Scene {
     cloudLayer.fillEllipse(width * 0.76, cloudY + 6, 180, 44);
     cloudLayer.fillEllipse(width * 0.68, cloudY + 22, 240, 56);
 
-    const petalLayer = this.add.graphics();
-    petalLayer.fillStyle(0xffb7e1, 0.11);
-    petalLayer.fillEllipse(width * 0.1, height * 0.78, 18, 8);
-    petalLayer.fillEllipse(width * 0.82, height * 0.22, 20, 9);
-    petalLayer.fillEllipse(width * 0.42, height * 0.14, 16, 7);
-    petalLayer.fillEllipse(width * 0.58, height * 0.85, 18, 8);
+    if (!this.petalGraphics) {
+      this.petalGraphics = this.add.graphics();
+    }
+    this.petalGraphics.clear();
+    this.petalGraphics.fillStyle(0xffb7e1, 0.11);
+    this.petalGraphics.fillEllipse(width * 0.1, height * 0.78, 18, 8);
+    this.petalGraphics.fillEllipse(width * 0.82, height * 0.22, 20, 9);
+    this.petalGraphics.fillEllipse(width * 0.42, height * 0.14, 16, 7);
+    this.petalGraphics.fillEllipse(width * 0.58, height * 0.85, 18, 8);
   }
 
   private shutdown() {
@@ -280,5 +284,6 @@ export class PongScene extends Phaser.Scene {
     this.frameGraphics?.destroy();
     this.sparkleGraphics?.destroy();
     this.cloudGraphics?.destroy();
+    this.petalGraphics?.destroy();
   }
 }

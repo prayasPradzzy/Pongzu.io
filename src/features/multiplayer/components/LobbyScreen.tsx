@@ -32,6 +32,7 @@ export function LobbyScreen() {
   const [localReady, setLocalReady] = useState(false);
   const [countdown, setCountdown] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const registeredRef = useRef(false);
 
   useEffect(() => {
@@ -115,6 +116,25 @@ export function LobbyScreen() {
     }
   };
 
+  const handleCopyLink = async () => {
+    if (!roomCode) return;
+    const inviteLink = `${window.location.origin}/join/${roomCode}`;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = inviteLink;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }
+  };
+
   return (
     <section className="face-upload">
       <div className="face-upload__panel lobby-panel">
@@ -127,13 +147,22 @@ export function LobbyScreen() {
             <p className="face-upload__copy">Share this code with your opponent.</p>
             <div className="lobby-room-code-wrap">
               <div className="lobby-room-code">{roomCode ?? '…'}</div>
-              <button
-                type="button"
-                className="lobby-copy-btn"
-                onClick={handleCopyCode}
-              >
-                {codeCopied ? '✓ Copied!' : '📋 Copy Code'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="lobby-copy-btn"
+                  onClick={handleCopyCode}
+                >
+                  {codeCopied ? '✓ Copied Code!' : '📋 Copy Code'}
+                </button>
+                <button
+                  type="button"
+                  className="lobby-copy-btn"
+                  onClick={handleCopyLink}
+                >
+                  {linkCopied ? '✓ Copied Link!' : '🔗 Copy Link'}
+                </button>
+              </div>
             </div>
             <div className="lobby-waiting-status">
               <span className="lobby-pulse" />

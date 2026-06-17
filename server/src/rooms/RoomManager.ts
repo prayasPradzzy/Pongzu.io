@@ -27,7 +27,11 @@ export class RoomManager {
 
     console.log(`[Room ${code}] Created by ${playerName} (${socket.id})`);
 
-    socket.emit(SERVER_EVENTS.ROOM_CREATED, { code, role: 'host' });
+    socket.emit(SERVER_EVENTS.ROOM_CREATED, { 
+      code, 
+      role: 'host',
+      reconnectToken: room.host!.reconnectToken,
+    });
     return room;
   }
 
@@ -56,6 +60,7 @@ export class RoomManager {
       role: 'guest',
       opponentName: room.host?.playerName ?? 'Host',
       opponentAvatarUrl: room.host?.avatarDataUrl ?? null,
+      reconnectToken: room.guest!.reconnectToken,
     });
 
     // Notify host
@@ -73,13 +78,27 @@ export class RoomManager {
     return this.rooms.get(code) ?? null;
   }
 
+  hasRoom(code: string): boolean {
+    return this.rooms.has(code.toUpperCase().trim());
+  }
+
+  getRoomByToken(token: string): Room | null {
+    for (const room of this.rooms.values()) {
+      if (room.getPlayerByToken(token)) return room;
+    }
+    return null;
+  }
+
   destroyRoom(code: string) {
     const room = this.rooms.get(code);
     if (!room) return;
 
-    // Clean up socket-to-room mappings
-    if (room.host) this.socketToRoom.delete(room.host.socketId);
-    if (room.guest) this.socketToRoom.delete(room.guest.socketId);
+    // Clean up socket-to-room mappings for all sockets associated with this room
+    for (const [socketId, mappedCode] of this.socketToRoom.entries()) {
+      if (mappedCode === code) {
+        this.socketToRoom.delete(socketId);
+      }
+    }
 
     this.rooms.delete(code);
     console.log(`[Room ${code}] Destroyed`);
@@ -133,12 +152,12 @@ export class RoomManager {
       }
     });
 
-    socket.on(CLIENT_EVENTS.MATCH_REJOIN, ({ code }) => {
-      const upperCode = (code ?? '').toUpperCase().trim();
-      const room = this.rooms.get(upperCode);
+    socket.on(CLIENT_EVENTS.MATCH_REJOIN, ({ token }) => {
+      if (!token) return;
+      const room = this.getRoomByToken(token);
       if (room) {
-        this.socketToRoom.set(socket.id, upperCode);
-        room.handleRejoin(socket);
+        this.socketToRoom.set(socket.id, room.code);
+        room.handleRejoin(socket, token);
       }
     });
 

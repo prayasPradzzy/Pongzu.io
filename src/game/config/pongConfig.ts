@@ -32,7 +32,7 @@ export const PONG_CONFIG = {
     maxSpeed: 980,
   },
   countdownSeconds: 3,
-  pointPauseMs: 700,
+  pointPauseMs: 1200,
   colors: {
     background: '#F8F1FF',
     arenaTop: '#F5E8FF',

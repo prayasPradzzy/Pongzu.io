@@ -19,15 +19,21 @@ export class Ball {
     const textureKey = useFaceBall ? 'face-ball' : BALL_TEXTURE_KEY;
 
     this.sprite = this.scene.physics.add.image(x, y, textureKey);
-    this.sprite.setCircle(PONG_CONFIG.ball.radius);
-    
+
     if (useFaceBall) {
-      // Display the face ball at the same size as the physics collision circle
-      // so visual and collision boundaries match exactly.
+      // Face-ball texture is 128×128. Display it at ball diameter so visual
+      // matches collision. setCircle must account for the texture→display scale
+      // so the physics body is centered on the rendered sprite.
       const diameter = PONG_CONFIG.ball.radius * 2;
       this.sprite.setDisplaySize(diameter, diameter);
+      const texSize = 128; // BootScene creates face-ball at this size
+      const bodyOffset = (texSize - diameter) / 2;
+      this.sprite.setCircle(PONG_CONFIG.ball.radius, bodyOffset, bodyOffset);
+    } else {
+      // Default texture is exactly diameter×diameter — no offset needed
+      this.sprite.setCircle(PONG_CONFIG.ball.radius);
     }
-    
+
     this.sprite.setOrigin(0.5);
     this.sprite.setCollideWorldBounds(true);
     this.sprite.setBounce(1, 1);
@@ -130,17 +136,20 @@ export class Ball {
       return;
     }
 
-    const diameter = PONG_CONFIG.ball.radius * 2;
+    const r = PONG_CONFIG.ball.radius;
+    const diameter = r * 2;
     const graphics = this.scene.add.graphics();
 
+    // All circles drawn within the diameter×diameter canvas so the visual
+    // exactly matches the physics body. No glow halo extends beyond bounds.
     graphics.fillStyle(PONG_CONFIG.colors.pink, 0.14);
-    graphics.fillCircle(PONG_CONFIG.ball.radius, PONG_CONFIG.ball.radius, PONG_CONFIG.ball.radius + 2);
+    graphics.fillCircle(r, r, r);           // outer glow — clamped to radius
     graphics.fillStyle(PONG_CONFIG.colors.cyan, 0.12);
-    graphics.fillCircle(PONG_CONFIG.ball.radius, PONG_CONFIG.ball.radius, PONG_CONFIG.ball.radius - 1);
+    graphics.fillCircle(r, r, r - 1);
     graphics.fillStyle(PONG_CONFIG.colors.ball, 1);
-    graphics.fillCircle(PONG_CONFIG.ball.radius, PONG_CONFIG.ball.radius, PONG_CONFIG.ball.radius - 2);
+    graphics.fillCircle(r, r, r - 2);
     graphics.fillStyle(0xfff7fd, 0.95);
-    graphics.fillCircle(PONG_CONFIG.ball.radius - 3, PONG_CONFIG.ball.radius - 4, PONG_CONFIG.ball.radius - 7);
+    graphics.fillCircle(r - 3, r - 4, r - 7); // highlight
     graphics.generateTexture(BALL_TEXTURE_KEY, diameter, diameter);
     graphics.destroy();
   }

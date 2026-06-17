@@ -33,6 +33,8 @@ class SocketService {
   private statusListeners: Array<(s: ConnectionStatus) => void> = [];
   /** Estimated offset between client clock and server clock (ms) */
   serverTimeOffset = 0;
+  
+  private reconnectToken: string | null = null;
 
   get status(): ConnectionStatus {
     return this._status;
@@ -52,6 +54,11 @@ class SocketService {
     this.socket.on('connect', () => {
       this._setStatus('connected');
       this.syncClock();
+      
+      // Auto-rejoin if we have a token
+      if (this.reconnectToken) {
+        this.sendRejoin({ token: this.reconnectToken });
+      }
     });
 
     this.socket.on('disconnect', () => {
@@ -71,6 +78,7 @@ class SocketService {
   disconnect() {
     this.socket?.disconnect();
     this.socket = null;
+    this.reconnectToken = null;
     this._setStatus('idle');
   }
 
@@ -106,8 +114,18 @@ class SocketService {
 
   // ─── Listener helpers ─────────────────────────────────────────────────────
 
-  onRoomCreated(cb: (p: RoomCreatedPayload) => void) { this.socket?.on(SERVER_EVENTS.ROOM_CREATED, cb); }
-  onRoomJoined(cb: (p: RoomJoinedPayload) => void) { this.socket?.on(SERVER_EVENTS.ROOM_JOINED, cb); }
+  onRoomCreated(cb: (p: RoomCreatedPayload) => void) { 
+    this.socket?.on(SERVER_EVENTS.ROOM_CREATED, (p: RoomCreatedPayload) => {
+      this.reconnectToken = p.reconnectToken;
+      cb(p);
+    }); 
+  }
+  onRoomJoined(cb: (p: RoomJoinedPayload) => void) { 
+    this.socket?.on(SERVER_EVENTS.ROOM_JOINED, (p: RoomJoinedPayload) => {
+      this.reconnectToken = p.reconnectToken;
+      cb(p);
+    }); 
+  }
   onRoomOpponentJoined(cb: (p: RoomOpponentJoinedPayload) => void) { this.socket?.on(SERVER_EVENTS.ROOM_OPPONENT_JOINED, cb); }
   onRoomError(cb: (p: RoomErrorPayload) => void) { this.socket?.on(SERVER_EVENTS.ROOM_ERROR, cb); }
   onLobbyOpponentReady(cb: () => void) { this.socket?.on(SERVER_EVENTS.LOBBY_OPPONENT_READY, cb); }
@@ -123,6 +141,7 @@ class SocketService {
   onPlayerDisconnected(cb: (p: PlayerDisconnectedPayload) => void) { this.socket?.on(SERVER_EVENTS.PLAYER_DISCONNECTED, cb); }
   onPlayerReconnected(cb: () => void) { this.socket?.on(SERVER_EVENTS.PLAYER_RECONNECTED, cb); }
   onMatchStateChange(cb: (p: MatchStateChangePayload) => void) { this.socket?.on(SERVER_EVENTS.MATCH_STATE_CHANGE, cb); }
+  onRoomClosed(cb: (p: { reason?: string }) => void) { this.socket?.on(SERVER_EVENTS.ROOM_CLOSED, cb); }
 
   offAll() {
     if (!this.socket) return;

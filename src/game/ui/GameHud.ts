@@ -10,6 +10,7 @@ export type MatchStats = {
 
 export class GameHud {
   private readonly roundedFont = 'Nunito, "Avenir Next Rounded", "Arial Rounded MT Bold", system-ui, sans-serif';
+  private readonly scene: Phaser.Scene;
   private readonly scoreText: Phaser.GameObjects.Text;
   private readonly scoreGlowText: Phaser.GameObjects.Text;
   private readonly countdownText: Phaser.GameObjects.Text;

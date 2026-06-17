@@ -6,11 +6,33 @@ const port = Number(process.env.PORT ?? 3001);
 const clientOrigin = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173';
 
 const httpServer = createServer((request, response) => {
+  // CORS headers
+  response.setHeader('Access-Control-Allow-Origin', clientOrigin);
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+
   if (request.url === '/healthz') {
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ ok: true, rooms: 'active' }));
     return;
   }
+
+  // Room exists API
+  if (request.url?.startsWith('/api/room/') && request.url.endsWith('/exists')) {
+    const parts = request.url.split('/');
+    const code = parts[3]?.toUpperCase(); // /api/room/CODE/exists
+    const exists = code ? roomManager.getRoomByToken(code) !== null || roomManager.hasRoom(code) : false;
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ exists }));
+    return;
+  }
+
   response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
   response.end('Face Pong server is running.');
 });
