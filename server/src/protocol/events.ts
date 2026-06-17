@@ -5,6 +5,7 @@
 export type Role = 'host' | 'guest';
 export type PaddleSide = 'top' | 'bottom';
 export type ServeDirection = 'up' | 'down';
+export type MatchState = 'lobby' | 'ready' | 'countdown' | 'playing' | 'point_scored' | 'match_over';
 
 // ─── Client → Server ─────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ export const SERVER_EVENTS = {
   MATCH_REMATCH_START: 'match:rematch_start',
   PLAYER_DISCONNECTED: 'player:disconnected',
   PLAYER_RECONNECTED: 'player:reconnected',
+  MATCH_STATE_CHANGE: 'match:state_change',
   PONG: 'pong',
 } as const;
 
@@ -145,4 +147,8 @@ export type PlayerDisconnectedPayload = {
 export type PongPayload = {
   serverTime: number;
   clientTime: number;
+};
+
+export type MatchStateChangePayload = {
+  state: MatchState;
 };

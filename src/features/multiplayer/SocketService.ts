@@ -21,6 +21,7 @@ import {
   type MatchRematchVotePayload,
   type MatchRematchStartPayload,
   type PlayerDisconnectedPayload,
+  type MatchStateChangePayload,
   type PongPayload,
 } from '../../../server/src/protocol/events';
 
@@ -121,6 +122,7 @@ class SocketService {
   onMatchRematchStart(cb: (p: MatchRematchStartPayload) => void) { this.socket?.on(SERVER_EVENTS.MATCH_REMATCH_START, cb); }
   onPlayerDisconnected(cb: (p: PlayerDisconnectedPayload) => void) { this.socket?.on(SERVER_EVENTS.PLAYER_DISCONNECTED, cb); }
   onPlayerReconnected(cb: () => void) { this.socket?.on(SERVER_EVENTS.PLAYER_RECONNECTED, cb); }
+  onMatchStateChange(cb: (p: MatchStateChangePayload) => void) { this.socket?.on(SERVER_EVENTS.MATCH_STATE_CHANGE, cb); }
 
   offAll() {
     if (!this.socket) return;

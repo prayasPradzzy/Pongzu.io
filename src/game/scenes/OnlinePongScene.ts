@@ -8,7 +8,7 @@ import { VisualEffectsSystem } from '../systems/VisualEffectsSystem';
 import { ReconciliationBuffer } from '../systems/ReconciliationBuffer';
 import { NetworkInputEmitter } from '../systems/NetworkInputEmitter';
 import type { SocketService } from '../../features/multiplayer/SocketService';
-import type { Role } from '../../../server/src/protocol/events';
+import type { Role, MatchState } from '../../../server/src/protocol/events';
 
 /**
  * Online multiplayer Phaser scene.
@@ -46,6 +46,9 @@ export class OnlinePongScene extends Phaser.Scene {
   private disconnectTimerEvent: Phaser.Time.TimerEvent | null = null;
   private isDisconnected = false;
   private rematchVoted = false;
+
+  // Server-authoritative match state — gates input and local prediction
+  private matchState: MatchState = 'lobby';
 
   constructor() {
     super('online-pong');
@@ -95,24 +98,31 @@ export class OnlinePongScene extends Phaser.Scene {
 
     if (this.isDisconnected) return;
 
-    // Send our input to server
-    this.netInput.update(this.localPaddleX);
+    // Only process input and local prediction during active gameplay
+    const isPlaying = this.matchState === 'playing';
 
-    // Apply local prediction to our own paddle immediately
-    const dir = this.netInput.getDirection();
-    const dt = this.game.loop.delta / 1000;
-    this.localPaddleX += dir * PONG_CONFIG.paddle.speed * dt;
-    const halfW = PONG_CONFIG.paddle.width / 2;
-    const left = PONG_CONFIG.arenaPadding + halfW;
-    const right = width - PONG_CONFIG.arenaPadding - halfW;
-    this.localPaddleX = Math.max(left, Math.min(right, this.localPaddleX));
+    if (isPlaying) {
+      // Send our input to server
+      this.netInput.update(this.localPaddleX);
+
+      // Apply local prediction to our own paddle immediately
+      const dir = this.netInput.getDirection();
+      const dt = this.game.loop.delta / 1000;
+      this.localPaddleX += dir * PONG_CONFIG.paddle.speed * dt;
+      const halfW = PONG_CONFIG.paddle.width / 2;
+      const left = PONG_CONFIG.arenaPadding + halfW;
+      const right = width - PONG_CONFIG.arenaPadding - halfW;
+      this.localPaddleX = Math.max(left, Math.min(right, this.localPaddleX));
+    }
 
     // Apply interpolated server state
     const snap = this.reconcBuffer.getInterpolatedState();
     if (snap) {
       // Ball
       this.ball.setPosition(snap.ball.x, snap.ball.y);
-      this.ball.getSprite().setVisible(true);
+      if (isPlaying) {
+        this.ball.getSprite().setVisible(true);
+      }
 
       // Opponent's paddle comes from server; local paddle uses prediction
       if (this.role === 'host') {
@@ -163,7 +173,6 @@ export class OnlinePongScene extends Phaser.Scene {
     });
 
     svc.onGameRoundEnd(({ scoringSide }) => {
-      const label = scoringSide === 'bottom' ? 'YOU SCORE' : 'CPU SCORES';
       // Personalise based on role
       const localSide = this.role === 'host' ? 'top' : 'bottom';
       const youScore = scoringSide === localSide;
@@ -171,6 +180,13 @@ export class OnlinePongScene extends Phaser.Scene {
       this.hud.showMessage('POINT');
       this.effects.playPaddleHit(this.ball.getX(), this.ball.getY());
       this.cameras.main.flash(80, 0, 229, 255, false);
+      // Hide ball and clear stale interpolation during point-scored freeze
+      this.ball.getSprite().setVisible(false);
+      this.reconcBuffer.clear();
+    });
+
+    svc.onMatchStateChange(({ state }) => {
+      this.matchState = state;
     });
 
     svc.onMatchOver(({ winner, reason, stats }) => {

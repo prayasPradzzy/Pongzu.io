@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io';
 import {
   SERVER_EVENTS,
   type Role,
+  type MatchState,
   type ServeDirection,
   type StateSnapshot,
 } from '../protocol/events.js';
@@ -111,6 +112,8 @@ export class Room {
   }
 
   handleInput(socketId: string, direction: -1 | 0 | 1, seq: number) {
+    // Only accept input during active gameplay
+    if (this.state !== 'active') return;
     const player = this.getPlayerBySocket(socketId);
     if (!player) return;
     player.inputDirection = direction;
@@ -189,8 +192,10 @@ export class Room {
       this.io.to(opponent.socketId).emit(SERVER_EVENTS.PLAYER_RECONNECTED);
     }
 
-    this.state = 'active';
-    this.startTick();
+    // Resume through countdown instead of jumping straight to active
+    this.resetInputDirections();
+    const serveDir: ServeDirection = Math.random() < 0.5 ? 'down' : 'up';
+    this.runCountdownThenServe(serveDir);
   }
 
   handleRematch(socketId: string) {
@@ -244,6 +249,7 @@ export class Room {
     this.scoreManager.reset();
     this.ball.reset();
     this.state = 'countdown';
+    this.broadcastMatchState();
 
     const serveDir: ServeDirection = Math.random() < 0.5 ? 'down' : 'up';
 
@@ -257,6 +263,8 @@ export class Room {
 
   private runCountdownThenServe(serveDir: ServeDirection) {
     this.state = 'countdown';
+    this.broadcastMatchState();
+    this.resetInputDirections();
     const ticks = ['3', '2', '1', 'GO'];
     let idx = 0;
 
@@ -285,6 +293,7 @@ export class Room {
     });
 
     this.state = 'active';
+    this.broadcastMatchState();
     this.lastTickTime = Date.now();
     this.startTick();
   }
@@ -390,6 +399,8 @@ export class Room {
   private handlePoint(scoringSide: 'top' | 'bottom') {
     this.stopTick();
     this.state = 'round_paused';
+    this.broadcastMatchState();
+    this.resetInputDirections();
 
     this.io.to(this.code).emit(SERVER_EVENTS.GAME_ROUND_END, { scoringSide });
 
@@ -401,6 +412,7 @@ export class Room {
 
     if (result.matchOver) {
       this.state = 'match_over';
+      this.broadcastMatchState();
       const winner: Role = result.topScore > result.bottomScore ? 'host' : 'guest';
       this.io.to(this.code).emit(SERVER_EVENTS.MATCH_OVER, {
         winner,
@@ -423,6 +435,28 @@ export class Room {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
+
+  // ─── State broadcast helpers ──────────────────────────────────────────────
+
+  private broadcastMatchState() {
+    const stateMap: Record<RoomState, MatchState> = {
+      'waiting': 'lobby',
+      'ready_check': 'ready',
+      'countdown': 'countdown',
+      'active': 'playing',
+      'round_paused': 'point_scored',
+      'match_over': 'match_over',
+      'disconnected': 'playing', // client shows disconnect overlay independently
+    };
+    this.io.to(this.code).emit(SERVER_EVENTS.MATCH_STATE_CHANGE, {
+      state: stateMap[this.state],
+    });
+  }
+
+  private resetInputDirections() {
+    if (this.host) this.host.inputDirection = 0;
+    if (this.guest) this.guest.inputDirection = 0;
+  }
 
   private getPlayerBySocket(socketId: string): PlayerSlot | null {
     if (this.host?.socketId === socketId) return this.host;
