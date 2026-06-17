@@ -16,7 +16,11 @@ export function JoinRouteHandler() {
 
     const checkRoomExists = async () => {
       try {
-        const res = await fetch(`/api/room/${roomCode.toUpperCase()}/exists`);
+        const API_URL = import.meta.env.VITE_API_URL;
+
+        const res = await fetch(
+          `${API_URL}/api/room/${roomCode.toUpperCase()}/exists`
+        );
         if (!res.ok) {
           navigate('/');
           return;
