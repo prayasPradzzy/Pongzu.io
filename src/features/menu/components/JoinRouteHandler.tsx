@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFaceUploadStore } from '../../faceUpload/faceUploadStore';
-import { socketService } from '../../multiplayer/SocketService';
+// import { socketService } from '../../multiplayer/SocketService';
 
 export function JoinRouteHandler() {
   const { roomCode } = useParams<{ roomCode: string }>();
