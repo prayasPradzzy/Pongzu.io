@@ -15,7 +15,7 @@ const ARENA_WIDTH = 800;
 const ARENA_HEIGHT = 600;
 const TICK_RATE_HZ = 60;
 const TICK_MS = 1000 / TICK_RATE_HZ;
-const DISCONNECT_GRACE_MS = 10_000;
+// const DISCONNECT_GRACE_MS = 10_000;
 const REMATCH_TIMEOUT_MS = 30_000;
 
 export type PlayerSlot = {
@@ -497,9 +497,9 @@ export class Room {
     return null;
   }
 
-  private getPlayerBySocketId(socketId: string): PlayerSlot | null {
-    return this.getPlayerBySocket(socketId);
-  }
+  // private getPlayerBySocketId(socketId: string): PlayerSlot | null {
+  //   return this.getPlayerBySocket(socketId);
+  // }
 
   getPlayerByToken(token: string): PlayerSlot | null {
     if (this.host?.reconnectToken === token) return this.host;
