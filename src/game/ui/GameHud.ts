@@ -316,8 +316,8 @@ export class GameHud {
   showWinScreen(outcome: 'victory' | 'defeat', stats: MatchStats) {
     const config = this.scene.registry.get('customConfig');
     const playerName = config?.playerName ?? 'Player';
-    const difficulty = config?.difficulty as Difficulty ?? 'medium';
-    const diffLabel = DIFFICULTY_PRESETS[difficulty].label;
+    const isOnline = config?.mode === 'online';
+    const opponentName = isOnline ? (config?.opponentName ?? 'Opponent') : 'CPU';
 
     if (outcome === 'victory') {
       this.winTitleText.setText('🏆 VICTORY');
@@ -327,19 +327,26 @@ export class GameHud {
     } else {
       this.winTitleText.setText('💀 DEFEAT');
       this.winTitleText.setColor('#E65C5C');
-      this.winSubtitleText.setText(`CPU wins!`);
+      this.winSubtitleText.setText(`${opponentName} wins!`);
       this.winSubtitleText.setColor('#E65C5C');
     }
 
-    const statsLines = [
-      `Score: ${stats.bottomScore} – ${stats.topScore}`,
-      `Difficulty: ${diffLabel}`,
-      `Longest Rally: ${stats.longestRally} hits`,
-    ];
+    const statsLines = isOnline
+      ? [
+          `Score: ${stats.bottomScore} – ${stats.topScore}`,
+          `Longest Rally: ${stats.longestRally} hits`,
+        ]
+      : [
+          `Score: ${stats.bottomScore} – ${stats.topScore}`,
+          `Difficulty: ${DIFFICULTY_PRESETS[(config?.difficulty as Difficulty) ?? 'medium'].label}`,
+          `Longest Rally: ${stats.longestRally} hits`,
+        ];
     this.winStatsText.setText(statsLines.join('\n'));
 
-    // Save stats to localStorage
-    this.persistStats(outcome, stats, difficulty);
+    // Save stats to localStorage (CPU mode only — difficulty tracking is CPU-specific)
+    if (!isOnline) {
+      this.persistStats(outcome, stats, (config?.difficulty as Difficulty) ?? 'medium');
+    }
 
     this.winPanel.setAlpha(1);
     this.winPanel.setScale(0.92);
@@ -398,12 +405,14 @@ export class GameHud {
   }
 
   private createNameLabel(name: string, color: number) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
     const label = this.scene.add.text(0, 0, name.toUpperCase(), {
       fontFamily: this.roundedFont,
       fontSize: '18px',
       color: '#ffffff',
       fontStyle: '800',
     });
+    label.setResolution(dpr);
     label.setOrigin(0.5);
     label.setLetterSpacing(2);
     label.setShadow(0, 2, '#000000', 4, false, true);

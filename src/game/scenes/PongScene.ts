@@ -165,7 +165,9 @@ export class PongScene extends Phaser.Scene {
   }
 
   private configureWorld(width: number, height: number) {
-    this.physics.world.setBounds(0, 0, width, height);
+    // Inset world bounds by arenaPadding so ball bounces at the visual arena frame
+    const pad = PONG_CONFIG.arenaPadding;
+    this.physics.world.setBounds(pad, 0, width - pad * 2, height);
     this.physics.world.setBoundsCollision(true, true, false, false);
   }
 

@@ -67,10 +67,10 @@ export class ServerBallSimulator {
     this.y += this.vy * dt;
 
     const radius = SERVER_PONG_CONFIG.ball.radius;
-    const leftWall = radius;
-    const rightWall = this.width - radius;
+    const leftWall = SERVER_PONG_CONFIG.arenaPadding + radius;
+    const rightWall = this.width - SERVER_PONG_CONFIG.arenaPadding - radius;
 
-    // Horizontal wall bounces
+    // Horizontal wall bounces (at arena frame edges)
     if (this.x <= leftWall) {
       this.x = leftWall;
       this.vx = Math.abs(this.vx);

@@ -13,17 +13,19 @@ export class Ball {
     this.scene = scene;
     this.ensureTexture();
 
-    const config = this.scene.registry.get('customConfig');
-    const useFaceBall = config?.faceBallMode && this.scene.textures.exists('face-ball');
+    // Use face-ball texture if it exists — BootScene creates it from either
+    // local player's face or opponent's face, so both clients see the same ball.
+    const useFaceBall = this.scene.textures.exists('face-ball');
     const textureKey = useFaceBall ? 'face-ball' : BALL_TEXTURE_KEY;
 
     this.sprite = this.scene.physics.add.image(x, y, textureKey);
     this.sprite.setCircle(PONG_CONFIG.ball.radius);
     
     if (useFaceBall) {
-      // Make face-ball larger visually so it is recognizable (2x physics radius)
-      const visualRadius = PONG_CONFIG.ball.radius * 2.0;
-      this.sprite.setDisplaySize(visualRadius * 2, visualRadius * 2);
+      // Display the face ball at the same size as the physics collision circle
+      // so visual and collision boundaries match exactly.
+      const diameter = PONG_CONFIG.ball.radius * 2;
+      this.sprite.setDisplaySize(diameter, diameter);
     }
     
     this.sprite.setOrigin(0.5);
@@ -57,7 +59,6 @@ export class Ball {
     this.sprite.setVelocity(0, 0);
     this.sprite.setAcceleration(0, 0);
     this.sprite.setAngle(0);
-    this.sprite.setScale(1);
     this.sprite.setAlpha(1);
     this.sprite.setVisible(true);
   }

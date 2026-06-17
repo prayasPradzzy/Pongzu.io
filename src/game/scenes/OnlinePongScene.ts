@@ -315,7 +315,8 @@ export class OnlinePongScene extends Phaser.Scene {
   // ─── Arena drawing (same as PongScene) ────────────────────────────────────
 
   private configureWorld(width: number, height: number) {
-    this.physics.world.setBounds(0, 0, width, height);
+    const pad = PONG_CONFIG.arenaPadding;
+    this.physics.world.setBounds(pad, 0, width - pad * 2, height);
     this.physics.world.setBoundsCollision(true, true, false, false);
   }
 

@@ -41,8 +41,9 @@ export function createPongGame(
     throw new Error('Cannot create the Pong game without a mount element.');
   }
 
-  const width = parent.clientWidth || window.innerWidth;
-  const height = parent.clientHeight || window.innerHeight;
+  // Fixed arena dimensions — must match server's ARENA_WIDTH / ARENA_HEIGHT
+  const GAME_WIDTH = 800;
+  const GAME_HEIGHT = 600;
 
   const scenes = config.mode === 'online'
     ? [BootScene, OnlinePongScene]
@@ -51,8 +52,8 @@ export function createPongGame(
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent,
-    width,
-    height,
+    width: GAME_WIDTH,
+    height: GAME_HEIGHT,
     backgroundColor: PONG_CONFIG.colors.background,
     physics: {
       default: 'arcade',
@@ -66,7 +67,7 @@ export function createPongGame(
       forceSetTimeOut: true,
     },
     scale: {
-      mode: Phaser.Scale.RESIZE,
+      mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
     scene: scenes,

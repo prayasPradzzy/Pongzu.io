@@ -94,7 +94,7 @@ function reducer(state: FaceUploadState, action: FaceUploadAction): FaceUploadSt
     case 'set-detection':
       return { ...state, detection: action.detection };
     case 'set-cropped-avatar-url':
-      return { ...state, croppedAvatarUrl: action.url, showCropEditor: false };
+      return { ...state, croppedAvatarUrl: action.url, faceBallMode: action.url !== null, showCropEditor: false };
     case 'set-face-ball-mode':
       return { ...state, faceBallMode: action.enabled };
     case 'set-ui-stage':
