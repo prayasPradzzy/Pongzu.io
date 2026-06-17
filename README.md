@@ -1,73 +1,220 @@
-# React + TypeScript + Vite
+# 🏓 Pongzu.io
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Face Pong is a real-time multiplayer Pong game where players can upload a face, crop it, and turn it into the game ball.
 
-Currently, two official plugins are available:
+Play against an AI opponent or challenge friends online through room-based multiplayer.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Built with React, Phaser, Socket.io, and MediaPipe.
 
-## React Compiler
+---
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🎮 Features
 
-## Expanding the ESLint configuration
+### 🧠 Face Ball System
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+* Upload any face image
+* Automatic face detection using MediaPipe
+* Crop and adjust the face
+* Convert the face into the game ball
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+The uploaded face becomes the actual Pong ball used during matches.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+---
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 🤖 Play vs CPU
+
+* Multiple difficulty levels
+* Responsive AI opponent
+* Match statistics tracking
+* Instant play without multiplayer setup
+
+---
+
+### 🌐 Online Multiplayer
+
+* Create private game rooms
+* Join using room codes
+* Invite friends using shareable links
+* Real-time gameplay powered by Socket.io
+* Server-authoritative game state
+* Ready-up lobby system
+* Countdown and synchronized match flow
+
+---
+
+### ⚡ Smooth Gameplay
+
+* Phaser 3 game engine
+* Real-time collision system
+* Authoritative multiplayer architecture
+* Input synchronization
+* State reconciliation
+* Countdown and point pause systems
+
+---
+
+### 📊 Statistics
+
+Track:
+
+* Matches played
+* Wins and losses
+* Longest rally
+* Game history
+* Performance metrics
+
+---
+
+## 🏗️ Tech Stack
+
+### Frontend
+
+* React
+* TypeScript
+* Phaser 3
+* Vite
+
+### Backend
+
+* Node.js
+* Express
+* Socket.io
+
+### Computer Vision
+
+* MediaPipe Face Detection
+
+---
+
+## 🧩 Architecture
+
+### Frontend
+
+```text
+React
+│
+├── Main Menu
+├── CPU Mode
+├── Multiplayer Lobby
+├── Face Upload
+├── Face Crop
+└── Phaser Game
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Backend
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+Node.js
+│
+├── Room Manager
+├── Match State Manager
+├── Authoritative Physics
+├── Score Manager
+└── Socket.io Server
 ```
+
+---
+
+## 🔄 Multiplayer Flow
+
+```text
+Create Room
+      ↓
+Share Room Code / Invite Link
+      ↓
+Friend Joins
+      ↓
+Ready Up
+      ↓
+Countdown
+      ↓
+Match Start
+      ↓
+Real-Time Gameplay
+      ↓
+Results Screen
+```
+
+---
+
+## 🎯 Why This Project?
+
+Most Pong clones simply change colors or graphics.
+
+Pongzu introduces:
+
+* Face-based gameplay personalization
+* Real-time multiplayer architecture
+* Computer vision integration
+* Server-authoritative synchronization
+
+The goal was to combine game development, computer vision, and multiplayer networking into a single browser-based experience.
+
+---
+
+## 🚀 Running Locally
+
+### Frontend
+
+```bash
+npm install
+npm run dev
+```
+
+### Backend
+
+```bash
+cd server
+npm install
+npm run dev
+```
+
+Frontend:
+
+```text
+http://localhost:5173
+```
+
+Backend:
+
+```text
+http://localhost:3001
+```
+
+---
+
+## 📸 How To Play
+
+### CPU Mode
+
+1. Enter your name
+2. Optionally upload a face
+3. Choose difficulty
+4. Start playing
+
+### Multiplayer
+
+1. Create a room
+2. Share the room code or invite link
+3. Friend joins
+4. Both players ready up
+5. Match begins
+
+---
+
+## 🔮 Future Improvements
+
+* Spectator mode
+* Ranked matchmaking
+* Replays
+* Mobile-first controls
+* Match sharing cards
+* Global leaderboards
+
+---
+
+## 👨‍💻 Author
+
+Built by Pratyush Awasthi.
+
+If you enjoyed the project, feel free to star the repository and share feedback.
