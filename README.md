@@ -215,6 +215,6 @@ http://localhost:3001
 
 ## 👨‍💻 Author
 
-Built by Pratyush Awasthi.
+Built by Pradzzy :).
 
 If you enjoyed the project, feel free to star the repository and share feedback.
