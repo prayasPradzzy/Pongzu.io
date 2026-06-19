@@ -1,4 +1,4 @@
-import type { StateSnapshot } from './events';
+import type { StateSnapshot } from '../../protocol/events';
 
 const BUFFER_SIZE = 8;
 const RENDER_DELAY_MS = 50; // render 50ms behind to always have 2 snapshots
@@ -7,11 +7,6 @@ type BufferedSnapshot = StateSnapshot & { receivedAt: number };
 
 export class ReconciliationBuffer {
   private buffer: BufferedSnapshot[] = [];
-  private serverTimeOffset = 0;
-
-  setServerTimeOffset(offset: number) {
-    this.serverTimeOffset = offset;
-  }
 
   push(snapshot: StateSnapshot) {
     const entry: BufferedSnapshot = { ...snapshot, receivedAt: Date.now() };
@@ -30,7 +25,7 @@ export class ReconciliationBuffer {
       return this.buffer[0] ?? null;
     }
 
-    const renderTime = Date.now() - this.serverTimeOffset - RENDER_DELAY_MS;
+    const renderTime = Date.now() - RENDER_DELAY_MS;
 
     // Find the two snapshots that straddle renderTime
     let older: BufferedSnapshot | null = null;

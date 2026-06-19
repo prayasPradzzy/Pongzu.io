@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-// import { PONG_CONFIG } from '../config/pongConfig';
+
 
 export class BootScene extends Phaser.Scene {
   constructor() {

@@ -7,8 +7,10 @@ import { GameHud } from '../ui/GameHud';
 import { VisualEffectsSystem } from '../systems/VisualEffectsSystem';
 import { ReconciliationBuffer } from '../systems/ReconciliationBuffer';
 import { NetworkInputEmitter } from '../systems/NetworkInputEmitter';
-import type { SocketService } from '../../features/multiplayer/SocketService';
-import type { Role, MatchState } from '../../../server/src/protocol/events';
+import { socketService as socketServiceInstance } from '../../features/multiplayer/SocketService';
+import type { Role, MatchState, StateSnapshot, GameScorePayload, GameCountdownPayload, GameRoundEndPayload, MatchStateChangePayload, MatchOverPayload, PlayerDisconnectedPayload } from '../../protocol/events';
+
+type SocketServiceType = typeof socketServiceInstance;
 
 /**
  * Online multiplayer Phaser scene.
@@ -37,7 +39,7 @@ export class OnlinePongScene extends Phaser.Scene {
   private reconcBuffer!: ReconciliationBuffer;
 
   private role!: Role;
-  private socketService!: SocketService;
+  private socketService!: SocketServiceType;
 
   // Local-prediction: apply own input immediately to local paddle
   private localPaddleX = 0;
@@ -82,7 +84,6 @@ export class OnlinePongScene extends Phaser.Scene {
 
     this.localPaddleX = cx;
     this.reconcBuffer = new ReconciliationBuffer();
-    this.reconcBuffer.setServerTimeOffset(this.socketService?.serverTimeOffset ?? 0);
     this.netInput = new NetworkInputEmitter(this, this.socketService);
 
     this.effects.followBall();
@@ -154,15 +155,15 @@ export class OnlinePongScene extends Phaser.Scene {
     const svc = this.socketService;
     if (!svc) return;
 
-    svc.onGameStateSnapshot((snap) => {
+    svc.onGameStateSnapshot((snap: StateSnapshot) => {
       this.reconcBuffer.push(snap);
     });
 
-    svc.onGameScore(({ top, bottom }) => {
+    svc.onGameScore(({ top, bottom }: GameScorePayload) => {
       this.hud.setScore(top, bottom);
     });
 
-    svc.onGameCountdown(({ value }) => {
+    svc.onGameCountdown(({ value }: GameCountdownPayload) => {
       this.hud.showCountdown(value);
     });
 
@@ -173,7 +174,7 @@ export class OnlinePongScene extends Phaser.Scene {
       this.ball.getSprite().setVisible(true);
     });
 
-    svc.onGameRoundEnd(({ scoringSide }) => {
+    svc.onGameRoundEnd(({ scoringSide }: GameRoundEndPayload) => {
       // Personalise based on role
       const localSide = this.role === 'host' ? 'top' : 'bottom';
       const youScore = scoringSide === localSide;
@@ -186,11 +187,11 @@ export class OnlinePongScene extends Phaser.Scene {
       this.reconcBuffer.clear();
     });
 
-    svc.onMatchStateChange(({ state }) => {
+    svc.onMatchStateChange(({ state }: MatchStateChangePayload) => {
       this.matchState = state;
     });
 
-    svc.onMatchOver(({ winner, reason, stats }) => {
+    svc.onMatchOver(({ winner, reason, stats }: MatchOverPayload) => {
       const localWon = winner === this.role;
       const outcome = localWon ? 'victory' : 'defeat';
 
@@ -213,7 +214,7 @@ export class OnlinePongScene extends Phaser.Scene {
       this.rematchVoted = false;
     });
 
-    svc.onPlayerDisconnected(({ role }) => {
+    svc.onPlayerDisconnected(({ role }: PlayerDisconnectedPayload) => {
       this.isDisconnected = true;
       this.showDisconnectOverlay(role === this.role ? 'You disconnected' : 'Opponent disconnected…', true);
     });
@@ -224,7 +225,7 @@ export class OnlinePongScene extends Phaser.Scene {
       this.reconcBuffer.clear(); // clear stale buffer on reconnect
     });
 
-    svc.onRoomClosed(({ reason }) => {
+    svc.onRoomClosed(({ reason }: { reason?: string }) => {
       this.isDisconnected = true; // stops processing
       this.showDisconnectOverlay(reason || 'Room closed', false);
     });

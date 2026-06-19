@@ -4,6 +4,7 @@ import { FaceCropEditor } from './FaceCropEditor';
 
 import { useFaceUploadStore } from '../faceUploadStore';
 import { faceDetectorService } from '../FaceDetectorService';
+import type { UiStage } from '../faceUploadTypes';
 
 type FaceUploadMenuProps = {
   onStartGame: () => void;
@@ -30,7 +31,7 @@ export function FaceUploadMenu({
 
   // Auto-run face detection when a new image is selected
   useEffect(() => {
-    if (image && uiStage === 'crop' && !detection) {
+    if (image && uiStage === ('crop' as UiStage) && !detection) {
       setTimeout(() => setIsDetecting(true), 0);
       const img = new Image();
       img.src = image.previewUrl;
@@ -84,13 +85,13 @@ export function FaceUploadMenu({
 
   const handleStart = () => {
     // Route to mode selection (CPU vs Online) instead of starting immediately
-    setUiStage('modeSelect');
+    setUiStage('playing' as UiStage);
     onStartGame();
   };
 
   const handleCropConfirm = (croppedUrl: string) => {
     setCroppedAvatarUrl(croppedUrl);
-    setUiStage('ready');
+    setUiStage('mainMenu' as UiStage);
   };
 
   const handleCropCancel = () => {
@@ -103,16 +104,16 @@ export function FaceUploadMenu({
         <p className="face-upload__eyebrow">Face Pong</p>
 
         <h1 className="face-upload__title">
-          {uiStage === 'ready' ? 'Ready to play!' : 'Pick a face for your paddle badge.'}
+          {uiStage === ('ready' as UiStage) ? 'Ready to play!' : 'Pick a face for your paddle badge.'}
         </h1>
 
         <p className="face-upload__copy">
-          {uiStage === 'ready'
+          {uiStage === ('ready' as UiStage)
             ? 'Your avatar badge is ready. Toggle settings below and start the match!'
             : 'Upload a picture of yourself. We will automatically frame your face for your circular avatar badge.'}
         </p>
 
-        {uiStage === 'menu' && (
+        {uiStage === ('menu' as UiStage) && (
           <>
             <div className="face-upload__actions">
               <UploadFaceButton onFileSelected={selectImage} />
@@ -160,12 +161,12 @@ export function FaceUploadMenu({
         )}
 
         {/* Render Crop Editor Modal when in crop stage and image is ready */}
-        {uiStage === 'crop' && image && !isDetecting && (
+        {uiStage === ('crop' as UiStage) && image && !isDetecting && (
           <FaceCropEditor onConfirm={handleCropConfirm} onCancel={handleCropCancel} />
         )}
 
         {/* Render Cropped Preview and Settings when in ready stage */}
-        {uiStage === 'ready' && croppedAvatarUrl && (
+        {uiStage === ('ready' as UiStage) && croppedAvatarUrl && (
           <>
             <div className="face-upload__preview-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <div
@@ -219,7 +220,7 @@ export function FaceUploadMenu({
               <button
                 type="button"
                 className="face-upload__ghost-button"
-                onClick={() => setUiStage('crop')}
+                onClick={() => setUiStage('mainMenu' as UiStage)}
                 style={{ flex: 1 }}
               >
                 Adjust Crop

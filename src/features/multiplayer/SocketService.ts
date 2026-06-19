@@ -23,7 +23,7 @@ import {
   type PlayerDisconnectedPayload,
   type MatchStateChangePayload,
   type PongPayload,
-} from '../../../server/src/protocol/events';
+} from '../../protocol/events';
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
 

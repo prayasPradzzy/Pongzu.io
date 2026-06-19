@@ -12,6 +12,7 @@ export class CpuController {
   private lastUpdateTime = 0;
   private errorOffset = 0;
 
+
   constructor(scene: Phaser.Scene, difficulty: Difficulty) {
     this.scene = scene;
     this.preset = DIFFICULTY_PRESETS[difficulty];

@@ -10,11 +10,9 @@ type LobbyPhase =
 
 export function LobbyScreen() {
   const {
-    // croppedAvatarUrl,
     multiplayerRole,
     roomCode,
     opponentName,
-    // opponentAvatarUrl,
     playerName,
     setMultiplayerRole,
     setRoomCode,

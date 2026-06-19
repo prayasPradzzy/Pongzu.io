@@ -4,8 +4,8 @@ import { PONG_CONFIG } from '../config/pongConfig';
 import { BootScene } from '../scenes/BootScene';
 import { PongScene } from '../scenes/PongScene';
 import { OnlinePongScene } from '../scenes/OnlinePongScene';
-import type { SocketService } from '../../features/multiplayer/SocketService';
-import type { Role } from '../../../server/src/protocol/events';
+import { socketService as socketServiceInstance } from '../../features/multiplayer/SocketService';
+import type { Role } from '../../protocol/events';
 import type { Difficulty } from '../config/pongConfig';
 
 type CpuGameConfig = {
@@ -27,7 +27,7 @@ type OnlineGameConfig = {
   playerName: string;
   opponentName: string;
   opponentAvatarUrl: string | null;
-  socketService: SocketService;
+  socketService: typeof socketServiceInstance;
   onExit: () => void;
 };
 

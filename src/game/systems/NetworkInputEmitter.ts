@@ -1,5 +1,7 @@
-import type { SocketService } from '../../features/multiplayer/SocketService';
-import type { InputUpdatePayload } from '../../../server/src/protocol/events';
+import { socketService as socketServiceInstance } from '../../features/multiplayer/SocketService';
+import type { InputUpdatePayload } from '../../protocol/events';
+
+type SocketServiceType = typeof socketServiceInstance;
 
 type HorizontalDirection = -1 | 0 | 1;
 
@@ -10,10 +12,10 @@ export class NetworkInputEmitter {
   private lastEmitTime = 0;
   private readonly leftKey: Phaser.Input.Keyboard.Key;
   private readonly rightKey: Phaser.Input.Keyboard.Key;
-  private readonly socketService: SocketService;
+  private readonly socketService: SocketServiceType;
   private readonly scene: Phaser.Scene;
 
-  constructor(scene: Phaser.Scene, socketService: SocketService) {
+  constructor(scene: Phaser.Scene, socketService: SocketServiceType) {
     this.scene = scene;
     this.socketService = socketService;
 
