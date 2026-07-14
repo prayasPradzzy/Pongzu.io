@@ -4,7 +4,7 @@ Face Pong is a real-time multiplayer Pong game where players can upload a face, 
 
 Play against an AI opponent or challenge friends online through room-based multiplayer.
 
-Built with React, Phaser, Socket.io, and MediaPipe.
+Built with React, Phaser, Socket.io, and MediaPipe
 
 ---
 
