@@ -14,6 +14,8 @@ export function LobbyScreen() {
     roomCode,
     opponentName,
     playerName,
+    croppedAvatarUrl,
+    opponentAvatarUrl,
     setMultiplayerRole,
     setRoomCode,
     setOpponent,
@@ -193,6 +195,13 @@ export function LobbyScreen() {
             <div className="lobby-players">
               {/* Local player */}
               <div className="lobby-player-card">
+                <div className="lobby-player-avatar-ring">
+                  {croppedAvatarUrl ? (
+                    <img src={croppedAvatarUrl} alt="You" className="lobby-player-avatar" />
+                  ) : (
+                    <div className="lobby-player-avatar-placeholder">👤</div>
+                  )}
+                </div>
                 <div className="lobby-player-name">{playerName || 'You'}</div>
                 <div className={`lobby-ready-chip ${localReady ? 'ready' : ''}`}>
                   {localReady ? '✓ Ready' : 'Not ready'}
@@ -203,6 +212,13 @@ export function LobbyScreen() {
 
               {/* Opponent */}
               <div className="lobby-player-card">
+                <div className="lobby-player-avatar-ring">
+                  {opponentAvatarUrl ? (
+                    <img src={opponentAvatarUrl} alt="Opponent" className="lobby-player-avatar" />
+                  ) : (
+                    <div className="lobby-player-avatar-placeholder">👤</div>
+                  )}
+                </div>
                 <div className="lobby-player-name">{opponentName ?? 'Opponent'}</div>
                 <div className={`lobby-ready-chip ${opponentReady ? 'ready' : ''}`}>
                   {opponentReady ? '✓ Ready' : 'Not ready'}

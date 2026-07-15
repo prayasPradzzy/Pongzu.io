@@ -7,6 +7,7 @@ import { GameHud } from '../ui/GameHud';
 import { VisualEffectsSystem } from '../systems/VisualEffectsSystem';
 import { ReconciliationBuffer } from '../systems/ReconciliationBuffer';
 import { NetworkInputEmitter } from '../systems/NetworkInputEmitter';
+import { audioManager } from '../systems/AudioManager';
 import { socketService as socketServiceInstance } from '../../features/multiplayer/SocketService';
 import type { Role, MatchState, StateSnapshot, GameScorePayload, GameCountdownPayload, GameRoundEndPayload, MatchStateChangePayload, MatchOverPayload, PlayerDisconnectedPayload } from '../../protocol/events';
 
@@ -43,6 +44,7 @@ export class OnlinePongScene extends Phaser.Scene {
 
   // Local-prediction: apply own input immediately to local paddle
   private localPaddleX = 0;
+  private lastBallVx = 0;
 
   // Disconnect overlay
   private disconnectOverlay: Phaser.GameObjects.Container | null = null;
@@ -124,6 +126,18 @@ export class OnlinePongScene extends Phaser.Scene {
       this.ball.setPosition(snap.ball.x, snap.ball.y);
       if (isPlaying) {
         this.ball.getSprite().setVisible(true);
+
+        // Detect wall bounce (X velocity reversed while near a wall)
+        if (this.lastBallVx !== 0 && Math.sign(snap.ball.vx) !== Math.sign(this.lastBallVx)) {
+          const radius = PONG_CONFIG.ball.radius;
+          const leftBound = PONG_CONFIG.arenaPadding + radius * 2;
+          const rightBound = width - PONG_CONFIG.arenaPadding - radius * 2;
+          
+          if (snap.ball.x < leftBound || snap.ball.x > rightBound) {
+            this.effects.playWallBounce(snap.ball.x, snap.ball.y);
+          }
+        }
+        this.lastBallVx = snap.ball.vx;
       }
 
       // Opponent's paddle comes from server; local paddle uses prediction
@@ -147,6 +161,9 @@ export class OnlinePongScene extends Phaser.Scene {
       PONG_CONFIG.paddle.topOffset,
       height - PONG_CONFIG.paddle.bottomOffset,
     );
+
+    // Update Ping UI
+    this.hud.setPing(this.socketService.ping);
   }
 
   // ─── Socket event wiring ───────────────────────────────────────────────────
@@ -199,6 +216,12 @@ export class OnlinePongScene extends Phaser.Scene {
         this.hud.showMessage('OPPONENT LEFT');
       }
 
+      if (localWon) {
+        audioManager.playWin();
+      } else {
+        audioManager.playLose();
+      }
+
       this.hud.showWinScreen(outcome, {
         topScore: stats.topScore,
         bottomScore: stats.bottomScore,
@@ -239,11 +262,14 @@ export class OnlinePongScene extends Phaser.Scene {
     });
 
     this.events.on('exit-match', () => {
+      audioManager.stopBGM();
       const customConfig = this.registry.get('customConfig');
       if (customConfig?.onExit) {
         customConfig.onExit();
       }
     });
+
+    audioManager.playBGM();
   }
 
   // ─── Disconnect overlay ────────────────────────────────────────────────────
@@ -412,6 +438,7 @@ export class OnlinePongScene extends Phaser.Scene {
 
   private shutdown() {
     this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
+    audioManager.stopBGM();
     this.events.off('rematch');
     this.events.off('exit-match');
     this.socketService?.offAll();

@@ -8,6 +8,7 @@ import { InputManager } from '../systems/InputManager';
 import { ScoreManager } from '../systems/ScoreManager';
 import { VisualEffectsSystem } from '../systems/VisualEffectsSystem';
 import { CpuController } from '../systems/CpuController';
+import { audioManager } from '../systems/AudioManager';
 
 export class PongScene extends Phaser.Scene {
   private inputManager!: InputManager;
@@ -62,8 +63,19 @@ export class PongScene extends Phaser.Scene {
     );
 
     this.ball = new Ball(this, arenaCenterX, centerY);
+    const body = this.ball.getSprite().body as Phaser.Physics.Arcade.Body;
+    body.onWorldBounds = true;
+
     this.scoreManager = new ScoreManager(this, this.hud, (direction) => this.launchBall(direction));
     this.effects.followBall();
+
+    this.physics.world.on('worldbounds', (bodyData: Phaser.Physics.Arcade.Body, up: boolean, down: boolean, left: boolean, right: boolean) => {
+      if (bodyData.gameObject === this.ball.getSprite()) {
+        if (left || right) {
+          this.effects.playWallBounce(this.ball.getX(), this.ball.getY());
+        }
+      }
+    });
 
     this.physics.add.collider(this.ball.getSprite(), this.topPaddle.getSprite(), () => {
       this.handlePaddleHit(this.topPaddle);
@@ -81,6 +93,7 @@ export class PongScene extends Phaser.Scene {
     });
 
     this.events.on('exit-match', () => {
+      audioManager.stopBGM();
       const customConfig = this.registry.get('customConfig');
       if (customConfig?.onExit) {
         customConfig.onExit();
@@ -88,6 +101,7 @@ export class PongScene extends Phaser.Scene {
     });
 
     this.scoreManager.startMatch(Phaser.Math.Between(0, 1) === 0 ? 'up' : 'down');
+    audioManager.playBGM();
   }
 
   update() {
@@ -275,6 +289,7 @@ export class PongScene extends Phaser.Scene {
 
   private shutdown() {
     this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
+    audioManager.stopBGM();
     this.events.off('rematch');
     this.events.off('exit-match');
     this.effects.destroy();

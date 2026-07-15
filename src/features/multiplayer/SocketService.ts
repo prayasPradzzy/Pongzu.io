@@ -33,6 +33,7 @@ export class SocketService {
   private statusListeners: Array<(s: ConnectionStatus) => void> = [];
   /** Estimated offset between client clock and server clock (ms) */
   serverTimeOffset = 0;
+  ping = 0;
   
   private reconnectToken: string | null = null;
 
@@ -71,6 +72,7 @@ export class SocketService {
 
     this.socket.on(SERVER_EVENTS.PONG, (payload: PongPayload) => {
       const t3 = Date.now();
+      this.ping = t3 - payload.clientTime;
       this.serverTimeOffset = (payload.clientTime + t3) / 2 - payload.serverTime;
     });
   }

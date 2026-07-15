@@ -23,6 +23,7 @@ export class GameHud {
   private readonly topNameLabel: Phaser.GameObjects.Text;
   private readonly bottomNameLabel: Phaser.GameObjects.Text;
   private readonly exitButtonContainer: Phaser.GameObjects.Container;
+  private readonly pingText?: Phaser.GameObjects.Text;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -104,6 +105,17 @@ export class GameHud {
     exitBg.on('pointerover', () => { this.exitButtonContainer.setAlpha(1); exitBg.setScale(1.1); exitText.setScale(1.1); });
     exitBg.on('pointerout', () => { this.exitButtonContainer.setAlpha(0.6); exitBg.setScale(1); exitText.setScale(1); });
     exitBg.on('pointerdown', () => { this.scene.events.emit('exit-match'); });
+
+    if (config?.mode === 'online') {
+      this.pingText = this.scene.add.text(0, 0, 'Ping: ---', {
+        fontFamily: 'system-ui, sans-serif',
+        fontSize: '12px',
+        color: '#9A84E8',
+        fontStyle: '600',
+      });
+      this.pingText.setOrigin(0, 0);
+      this.pingText.setDepth(100);
+    }
 
     // Build win panel
     const winBackdrop = this.scene.add.rectangle(0, 0, 440, 380, 0x050816, 0.92);
@@ -245,11 +257,24 @@ export class GameHud {
     this.messageText.setPosition(width / 2, height / 2 + 112);
     this.winPanel.setPosition(width / 2, height / 2 - 8);
     this.exitButtonContainer.setPosition(width - 32, 32);
+    if (this.pingText) {
+      this.pingText.setPosition(16, 16);
+    }
   }
 
   setNamePositions(topX: number, bottomX: number, topY: number, bottomY: number) {
     this.topNameLabel.setPosition(topX, topY - 32);
     this.bottomNameLabel.setPosition(bottomX, bottomY + 32);
+  }
+
+  setPing(pingMs: number) {
+    if (this.pingText) {
+      this.pingText.setText(`Ping: ${Math.round(pingMs)}ms`);
+      // Optional: change color based on ping
+      if (pingMs < 80) this.pingText.setColor('#9A84E8');
+      else if (pingMs < 150) this.pingText.setColor('#E6C35C');
+      else this.pingText.setColor('#E65C5C');
+    }
   }
 
   setScore(topScore: number, bottomScore: number) {
@@ -267,10 +292,17 @@ export class GameHud {
     });
   }
 
-  showCountdown(value: string) {
+  showCountdown(value: string, isGo?: boolean) {
     this.countdownText.setText(value);
     this.countdownText.setAlpha(1);
     this.countdownText.setScale(0.84);
+    if (isGo) {
+      this.countdownText.setColor(PONG_CONFIG.colors.pink);
+      this.countdownText.setShadow(0, 0, '#FF8DC7', 22, false, true);
+    } else {
+      this.countdownText.setColor(PONG_CONFIG.colors.text);
+      this.countdownText.setShadow(0, 0, '#C8B6FF', 22, false, true);
+    }
 
     this.scene.tweens.add({
       targets: this.countdownText,
@@ -376,6 +408,7 @@ export class GameHud {
     this.topNameLabel.destroy();
     this.bottomNameLabel.destroy();
     this.exitButtonContainer.destroy();
+    this.pingText?.destroy();
   }
 
   private persistStats(outcome: 'victory' | 'defeat', stats: MatchStats, difficulty: Difficulty) {

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 import { PONG_CONFIG } from '../config/pongConfig';
+import { audioManager } from './AudioManager';
 
 const PARTICLE_TEXTURE_KEY = 'pong-particle';
 
@@ -23,12 +24,12 @@ export class VisualEffectsSystem {
     this.flash.setBlendMode(Phaser.BlendModes.ADD);
 
     this.trail = this.scene.add.particles(0, 0, PARTICLE_TEXTURE_KEY, {
-      speed: 0,
-      frequency: 42,
+      speed: { min: 8, max: 18 },
+      frequency: 28,
       lifespan: { min: 560, max: 920 },
       quantity: 1,
-      scale: { start: 0.34, end: 0 },
-      alpha: { start: 0.35, end: 0 },
+      scale: { start: 0.42, end: 0 },
+      alpha: { start: 0.45, end: 0 },
       tint: [0xffffff, PONG_CONFIG.colors.pink, PONG_CONFIG.colors.cyan],
       blendMode: Phaser.BlendModes.ADD,
     });
@@ -83,6 +84,34 @@ export class VisualEffectsSystem {
     this.scene.cameras.main.flash(120, 255, 255, 255, false);
   }
 
+  /** Larger particle burst + stronger shake for a scored point */
+  playScoreExplosion(x: number, y: number) {
+    this.emitter.explode(24, x, y);
+    this.scene.cameras.main.shake(30, 0.004);
+    this.scene.cameras.main.flash(100, 200, 140, 255, false);
+    audioManager.playScore();
+  }
+
+  /** Small flash + subtle shake for side-wall bounces */
+  playWallBounce(x: number, y: number) {
+    this.flash.setPosition(x, y);
+    this.flash.setScale(0.35);
+    this.flash.setAlpha(0.4);
+
+    this.scene.tweens.add({
+      targets: this.flash,
+      alpha: 0,
+      scaleX: 0.8,
+      scaleY: 0.8,
+      duration: 80,
+      ease: 'Quad.easeOut',
+    });
+
+    this.emitter.explode(5, x, y);
+    this.scene.cameras.main.shake(12, 0.0008);
+    audioManager.playWallBounce();
+  }
+
   destroy() {
     this.glow.destroy();
     this.flash.destroy();
@@ -103,6 +132,6 @@ export class VisualEffectsSystem {
   }
 
   private playHitSoundHook() {
-    // Placeholder hook for a future hit sound implementation.
+    audioManager.playPaddleHit();
   }
 }
