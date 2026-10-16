@@ -1,66 +1,54 @@
 import { socketService as socketServiceInstance } from '../../features/multiplayer/SocketService';
-import type { InputUpdatePayload } from '../../protocol/events';
+import type { PaddleControl } from './PongSimulation';
 
 type SocketServiceType = typeof socketServiceInstance;
 
-type HorizontalDirection = -1 | 0 | 1;
+// Resend the current input this often even if nothing changed, so a dropped
+// packet can't leave the server believing a stale direction.
+const KEEPALIVE_MS = 100;
+// A dragged finger changes target every frame; cap how often that is sent.
+const TARGET_INTERVAL_MS = 33;
 
-/** Reads keyboard input and emits to server, throttled to max 60/s */
+/** Forwards the local player's paddle control to the server. */
 export class NetworkInputEmitter {
   private seq = 0;
-  private lastDirection: HorizontalDirection = 0;
+  private lastDirection = 0;
+  private lastTargetX: number | null = null;
   private lastEmitTime = 0;
-  private readonly leftKey: Phaser.Input.Keyboard.Key;
-  private readonly rightKey: Phaser.Input.Keyboard.Key;
   private readonly socketService: SocketServiceType;
-  private readonly scene: Phaser.Scene;
 
-  constructor(scene: Phaser.Scene, socketService: SocketServiceType) {
-    this.scene = scene;
+  constructor(socketService: SocketServiceType) {
     this.socketService = socketService;
-
-    const keyboard = scene.input.keyboard;
-    if (!keyboard) throw new Error('Keyboard input required.');
-
-    this.leftKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
-    this.rightKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
   }
 
-  update(currentPaddleX: number) {
-    const left = this.leftKey.isDown;
-    const right = this.rightKey.isDown;
-    const pointer = this.scene.input.activePointer;
+  send(control: PaddleControl) {
+    const now = performance.now();
+    const sinceLast = now - this.lastEmitTime;
 
-    let direction: HorizontalDirection = 0;
-    if (left && !right) direction = -1;
-    else if (right && !left) direction = 1;
-    else if (pointer && pointer.isDown) {
-      const diff = pointer.x - currentPaddleX;
-      if (Math.abs(diff) > 4) {
-        direction = Math.sign(diff) as HorizontalDirection;
-      }
+    const modeChanged =
+      control.direction !== this.lastDirection || (control.targetX === null) !== (this.lastTargetX === null);
+    const targetMoved =
+      control.targetX !== null && this.lastTargetX !== null && Math.abs(control.targetX - this.lastTargetX) >= 1;
+
+    if (!modeChanged && !(targetMoved && sinceLast >= TARGET_INTERVAL_MS) && sinceLast < KEEPALIVE_MS) {
+      return;
     }
 
-    // Only emit on direction change (direction-change driven) or at most 60Hz
-    const now = Date.now();
-    const changed = direction !== this.lastDirection;
-    const rateLimitOk = now - this.lastEmitTime >= 16;
+    this.lastDirection = control.direction;
+    this.lastTargetX = control.targetX;
+    this.lastEmitTime = now;
+    this.seq++;
 
-    if (changed || rateLimitOk) {
-      this.lastDirection = direction;
-      this.lastEmitTime = now;
-      this.seq++;
-
-      const payload: InputUpdatePayload = { direction, seq: this.seq };
-      this.socketService.sendInput(payload);
-    }
+    this.socketService.sendInput({
+      direction: control.direction as -1 | 0 | 1,
+      targetX: control.targetX === null ? null : Math.round(control.targetX),
+      seq: this.seq,
+    });
   }
 
-  getDirection(): HorizontalDirection {
-    return this.lastDirection;
-  }
-
-  getLastSeq(): number {
-    return this.seq;
+  /** Tell the server we've let go (round over, overlay shown, …). */
+  release() {
+    if (this.lastDirection === 0 && this.lastTargetX === null) return;
+    this.send({ direction: 0, targetX: null, speedScale: 1 });
   }
 }

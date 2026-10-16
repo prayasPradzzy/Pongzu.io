@@ -20,6 +20,7 @@ export function CpuSetupScreen() {
   } = useFaceUploadStore();
 
   const handleStart = () => {
+    if (!playerName.trim()) return;
     setGameMode('cpu');
     setUiStage('playing');
   };
@@ -41,6 +42,7 @@ export function CpuSetupScreen() {
             maxLength={20}
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleStart()}
             autoFocus
           />
         </div>

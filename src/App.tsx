@@ -1,4 +1,3 @@
-import { PhaserStage } from './game/PhaserStage';
 import { FaceUploadProvider, useFaceUploadStore } from './features/faceUpload';
 import { MainMenu } from './features/menu/components/MainMenu';
 import { CpuSetupScreen } from './features/menu/components/CpuSetupScreen';
@@ -11,7 +10,13 @@ import { LobbyScreen } from './features/multiplayer/components/LobbyScreen';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { JoinRouteHandler } from './features/menu/components/JoinRouteHandler';
 import { audioManager } from './game/systems/AudioManager';
-import { useState, useEffect } from 'react';
+import { warmUpServer } from './features/multiplayer/SocketService';
+import { lazy, Suspense, useState, useEffect } from 'react';
+
+// Phaser is by far the heaviest dependency. Loading it separately lets the
+// menu appear immediately; it is fetched in the background right after.
+const loadPhaserStage = () => import('./game/PhaserStage');
+const PhaserStage = lazy(() => loadPhaserStage().then((m) => ({ default: m.PhaserStage })));
 
 function MuteButton() {
   const [muted, setMuted] = useState(audioManager.muted);
@@ -38,6 +43,22 @@ function MuteButton() {
 function AppContent() {
   const { uiStage } = useFaceUploadStore();
 
+  useEffect(() => {
+    // Start fetching the game engine and waking the multiplayer server while
+    // the player is still in the menus.
+    void loadPhaserStage().catch(() => {});
+    warmUpServer();
+
+    // Browsers only allow sound after a user gesture.
+    const unlock = () => audioManager.unlock();
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
   return (
     <main className="app-root">
       <div className="game-shell">
@@ -48,7 +69,11 @@ function AppContent() {
         {uiStage === 'joinSetup' && <JoinSetupScreen />}
         {uiStage === 'lobby' && <LobbyScreen />}
         {uiStage === 'stats' && <StatsScreen />}
-        {uiStage === 'playing' && <PhaserStage />}
+        {uiStage === 'playing' && (
+          <Suspense fallback={<div className="phaser-stage phaser-stage--loading">Loading game…</div>}>
+            <PhaserStage />
+          </Suspense>
+        )}
       </div>
       <MuteButton />
     </main>

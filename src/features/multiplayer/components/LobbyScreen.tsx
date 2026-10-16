@@ -3,10 +3,26 @@ import { useFaceUploadStore } from '../../faceUpload/faceUploadStore';
 import { socketService } from '../SocketService';
 
 type LobbyPhase =
-  | 'waiting-guest'   // Host: waiting for guest
+  | 'connecting'      // Reaching the server / waiting for it to confirm the room
+  | 'waiting-guest'   // Host: room is open, nobody has joined yet
   | 'both-present'    // Both players present, waiting for ready
   | 'ready-waiting'   // Local player is ready, waiting for opponent
-  | 'starting';       // Both ready, match starting
+  | 'starting'        // Both ready, countdown running
+  | 'error';          // Room unavailable or connection failed
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Older browsers / insecure contexts
+    const el = document.createElement('textarea');
+    el.value = text;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  }
+}
 
 export function LobbyScreen() {
   const {
@@ -16,72 +32,111 @@ export function LobbyScreen() {
     playerName,
     croppedAvatarUrl,
     opponentAvatarUrl,
-    setMultiplayerRole,
     setRoomCode,
     setOpponent,
     setUiStage,
-    setDisconnectReason,
-    resetToMenu,
+    leaveRoom,
   } = useFaceUploadStore();
 
-  const [phase, setPhase] = useState<LobbyPhase>(
-    multiplayerRole === 'guest' ? 'both-present' : 'waiting-guest'
-  );
+  const isHost = multiplayerRole === 'host';
+
+  const [phase, setPhase] = useState<LobbyPhase>('connecting');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [slowConnect, setSlowConnect] = useState(false);
   const [opponentReady, setOpponentReady] = useState(false);
   const [localReady, setLocalReady] = useState(false);
   const [countdown, setCountdown] = useState<string | null>(null);
-  const [codeCopied, setCodeCopied] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
-  const registeredRef = useRef(false);
+  const [copied, setCopied] = useState<'code' | 'link' | null>(null);
+  const startedRef = useRef(false);
 
   useEffect(() => {
-    if (registeredRef.current) return;
-    registeredRef.current = true;
+    // Create/join exactly once per visit to this screen.
+    if (startedRef.current) return;
+    startedRef.current = true;
 
-    socketService.onRoomCreated(({ code, role }) => {
-      setRoomCode(code);
-      setMultiplayerRole(role);
-      setPhase('waiting-guest');
-    });
+    let matchStarted = false;
+    let failed = false;
 
-    socketService.onRoomJoined(({ code, role, opponentName: oName, opponentAvatarUrl: oAvatar }) => {
-      setRoomCode(code);
-      setMultiplayerRole(role);
-      setOpponent(oName, oAvatar);
-      setPhase('both-present');
-    });
-
-    socketService.onRoomOpponentJoined(({ opponentName: oName, opponentAvatarUrl: oAvatar }) => {
-      setOpponent(oName, oAvatar);
-      setPhase('both-present');
-    });
-
-    socketService.onRoomError(({ message }) => {
+    const fail = (message: string) => {
+      if (failed || matchStarted) return;
+      failed = true;
+      socketService.disconnect();
       setError(message);
-    });
+      setPhase('error');
+    };
 
-    socketService.onLobbyOpponentReady(() => {
-      setOpponentReady(true);
-    });
+    socketService.connect();
 
-    socketService.onGameCountdown(({ value }) => {
-      setCountdown(value);
-      setPhase('starting');
-    });
+    const unsubscribers = [
+      socketService.onRoomCreated(({ code }) => {
+        setRoomCode(code);
+        setPhase('waiting-guest');
+      }),
 
-    socketService.onMatchStart(() => {
-      setUiStage('playing');
-    });
+      socketService.onRoomJoined(({ code, opponentName: oName, opponentAvatarUrl: oAvatar }) => {
+        setRoomCode(code);
+        setOpponent(oName, oAvatar);
+        setPhase('both-present');
+      }),
 
-    socketService.onPlayerDisconnected(({ reason }) => {
-      setDisconnectReason(reason);
-      setUiStage('playing');
-    });
+      socketService.onRoomOpponentJoined(({ opponentName: oName, opponentAvatarUrl: oAvatar }) => {
+        setOpponent(oName, oAvatar);
+        setNotice(null);
+        setPhase('both-present');
+      }),
+
+      socketService.onRoomOpponentLeft(() => {
+        setOpponent(null, null);
+        setOpponentReady(false);
+        setLocalReady(false);
+        setNotice('Your opponent left. The room is still open — share the code again.');
+        setPhase('waiting-guest');
+      }),
+
+      socketService.onRoomError(({ message }) => fail(message)),
+      socketService.onRoomClosed(({ reason }) => fail(reason || 'The room was closed.')),
+
+      socketService.onLobbyOpponentReady(() => setOpponentReady(true)),
+
+      socketService.onGameCountdown(({ value }) => {
+        setCountdown(value);
+        setPhase('starting');
+      }),
+
+      socketService.onMatchStart(() => {
+        matchStarted = true;
+        setUiStage('playing');
+      }),
+
+      socketService.onStatusChange((status) => {
+        if (status === 'failed') {
+          fail("Couldn't reach the game server. Check your connection and try again.");
+        } else if (status === 'reconnecting') {
+          // Dropping out of a lobby gives up the seat, so there is nothing to resume.
+          fail('Connection lost. Please try again.');
+        }
+      }),
+    ];
+
+    if (multiplayerRole === 'host') {
+      socketService.createRoom({ playerName: playerName || 'Player', avatarDataUrl: croppedAvatarUrl });
+    } else {
+      socketService.joinRoom({
+        code: roomCode ?? '',
+        playerName: playerName || 'Player',
+        avatarDataUrl: croppedAvatarUrl,
+      });
+    }
+
+    // Free-tier servers sleep when idle; reassure the player while one wakes up.
+    const slowTimer = setTimeout(() => setSlowConnect(true), 4000);
 
     return () => {
-      socketService.offAll();
+      clearTimeout(slowTimer);
+      unsubscribers.forEach((off) => off());
     };
+    // Runs once on mount with the values the setup screen put in the store.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -94,45 +149,39 @@ export function LobbyScreen() {
   const handleLeave = () => {
     socketService.sendExit();
     socketService.disconnect();
-    resetToMenu();
+    leaveRoom('multiplayerMenu');
+  };
+
+  const flashCopied = (what: 'code' | 'link') => {
+    setCopied(what);
+    setTimeout(() => setCopied(null), 2000);
   };
 
   const handleCopyCode = async () => {
     if (!roomCode) return;
-    try {
-      await navigator.clipboard.writeText(roomCode);
-      setCodeCopied(true);
-      setTimeout(() => setCodeCopied(false), 2000);
-    } catch {
-      // Fallback
-      const el = document.createElement('textarea');
-      el.value = roomCode;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      setCodeCopied(true);
-      setTimeout(() => setCodeCopied(false), 2000);
-    }
+    await copyText(roomCode);
+    flashCopied('code');
   };
 
-  const handleCopyLink = async () => {
+  const handleShareLink = async () => {
     if (!roomCode) return;
     const inviteLink = `${window.location.origin}/join/${roomCode}`;
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
-    } catch {
-      const el = document.createElement('textarea');
-      el.value = inviteLink;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2000);
+
+    // Phones get the native share sheet (WhatsApp, Messages, …).
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: 'Pongzu',
+          text: `${playerName || 'A friend'} challenged you to Face Pong!`,
+          url: inviteLink,
+        });
+        return;
+      } catch {
+        // Share sheet dismissed or unavailable — fall back to copying.
+      }
     }
+    await copyText(inviteLink);
+    flashCopied('link');
   };
 
   return (
@@ -140,27 +189,48 @@ export function LobbyScreen() {
       <div className="face-upload__panel lobby-panel">
         <p className="face-upload__eyebrow">Online Multiplayer</p>
 
+        {phase === 'connecting' && (
+          <>
+            <h1 className="face-upload__title">{isHost ? 'Creating room…' : `Joining ${roomCode ?? 'room'}…`}</h1>
+            <div className="lobby-waiting-status">
+              <span className="lobby-pulse" />
+              Connecting to the game server…
+            </div>
+            {slowConnect && (
+              <p className="face-upload__copy">
+                The server is waking up. The first game of the day can take up to a minute — hang tight.
+              </p>
+            )}
+          </>
+        )}
+
+        {phase === 'error' && (
+          <>
+            <h1 className="face-upload__title">{isHost ? "Couldn't create the room" : "Couldn't join"}</h1>
+            <p className="lobby-error">{error}</p>
+            <button
+              type="button"
+              className="face-upload__start-button"
+              onClick={() => leaveRoom(isHost ? 'createSetup' : 'joinSetup')}
+            >
+              {isHost ? 'Try Again' : 'Try Another Code'}
+            </button>
+          </>
+        )}
+
         {/* Waiting for guest — host view */}
         {phase === 'waiting-guest' && (
           <>
             <h1 className="face-upload__title">Room Created!</h1>
-            <p className="face-upload__copy">Share this code with your opponent.</p>
+            <p className="face-upload__copy">Send this code or the invite link to your opponent.</p>
             <div className="lobby-room-code-wrap">
               <div className="lobby-room-code">{roomCode ?? '…'}</div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  className="lobby-copy-btn"
-                  onClick={handleCopyCode}
-                >
-                  {codeCopied ? '✓ Copied Code!' : '📋 Copy Code'}
+                <button type="button" className="lobby-copy-btn" onClick={handleCopyCode}>
+                  {copied === 'code' ? '✓ Copied Code!' : '📋 Copy Code'}
                 </button>
-                <button
-                  type="button"
-                  className="lobby-copy-btn"
-                  onClick={handleCopyLink}
-                >
-                  {linkCopied ? '✓ Copied Link!' : '🔗 Copy Link'}
+                <button type="button" className="lobby-copy-btn" onClick={handleShareLink}>
+                  {copied === 'link' ? '✓ Copied Link!' : '🔗 Share Invite Link'}
                 </button>
               </div>
             </div>
@@ -168,7 +238,7 @@ export function LobbyScreen() {
               <span className="lobby-pulse" />
               Waiting for opponent…
             </div>
-            {error && <p className="lobby-error">{error}</p>}
+            {notice && <p className="lobby-error">{notice}</p>}
           </>
         )}
 
@@ -182,13 +252,6 @@ export function LobbyScreen() {
             {roomCode && (
               <div className="lobby-room-code-small">
                 Room: <strong>{roomCode}</strong>
-                <button
-                  type="button"
-                  className="lobby-copy-btn lobby-copy-btn--small"
-                  onClick={handleCopyCode}
-                >
-                  {codeCopied ? '✓' : '📋'}
-                </button>
               </div>
             )}
 
@@ -219,7 +282,7 @@ export function LobbyScreen() {
                     <div className="lobby-player-avatar-placeholder">👤</div>
                   )}
                 </div>
-                <div className="lobby-player-name">{opponentName ?? 'Opponent'}</div>
+                <div className="lobby-player-name">{opponentName || 'Opponent'}</div>
                 <div className={`lobby-ready-chip ${opponentReady ? 'ready' : ''}`}>
                   {opponentReady ? '✓ Ready' : 'Not ready'}
                 </div>
@@ -227,11 +290,7 @@ export function LobbyScreen() {
             </div>
 
             {phase === 'both-present' && (
-              <button
-                type="button"
-                className="face-upload__start-button"
-                onClick={handleReady}
-              >
+              <button type="button" className="face-upload__start-button" onClick={handleReady}>
                 I'm Ready! →
               </button>
             )}
@@ -245,12 +304,8 @@ export function LobbyScreen() {
           </>
         )}
 
-        <button
-          type="button"
-          className="face-upload__ghost-button lobby-leave-btn"
-          onClick={handleLeave}
-        >
-          ← Leave Room
+        <button type="button" className="face-upload__ghost-button lobby-leave-btn" onClick={handleLeave}>
+          {phase === 'error' ? '← Back to Menu' : '← Leave Room'}
         </button>
       </div>
     </section>

@@ -8,7 +8,7 @@ export function MainMenu() {
       <div className="face-upload__panel main-menu-panel">
         <div className="main-menu__brand">
           <span className="main-menu__logo">🏓</span>
-          <h1 className="main-menu__title">Face Pong</h1>
+          <h1 className="main-menu__title">Pongzu</h1>
           <p className="main-menu__tagline">Upload your face. Smash your friends.</p>
         </div>
 

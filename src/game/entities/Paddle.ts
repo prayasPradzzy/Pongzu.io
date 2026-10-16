@@ -1,65 +1,25 @@
 import Phaser from 'phaser';
 
-import { PONG_CONFIG, type PaddleSide } from '../config/pongConfig';
+import { PONG_CONFIG } from '../config/pongConfig';
 
 const PADDLE_TEXTURE_KEY = 'pong-paddle';
 
+/** Purely visual: position comes from PongSimulation or server snapshots. */
 export class Paddle {
-  private readonly sprite: Phaser.Physics.Arcade.Image;
+  private readonly sprite: Phaser.GameObjects.Image;
   private readonly scene: Phaser.Scene;
-  private readonly side: PaddleSide;
 
-  constructor(
-    scene: Phaser.Scene,
-    side: PaddleSide,
-    x: number,
-    y: number,
-    tint: number,
-  ) {
+  constructor(scene: Phaser.Scene, x: number, y: number, tint: number) {
     this.scene = scene;
-    this.side = side;
     this.ensureTexture();
 
-    this.sprite = this.scene.physics.add.image(x, y, PADDLE_TEXTURE_KEY);
+    this.sprite = this.scene.add.image(x, y, PADDLE_TEXTURE_KEY);
     this.sprite.setTint(tint);
-    this.sprite.setImmovable(true);
-    this.sprite.setCollideWorldBounds(true);
-    this.sprite.setBounce(0);
-    this.sprite.setDragX(0);
-    this.sprite.setMaxVelocity(PONG_CONFIG.paddle.speed, 0);
     this.sprite.setAlpha(0.98);
-    const body = this.sprite.body as Phaser.Physics.Arcade.Body;
-    body.allowGravity = false;
-    body.setSize(PONG_CONFIG.paddle.width, PONG_CONFIG.paddle.height, true);
-  }
-
-  getSprite() {
-    return this.sprite;
-  }
-
-  getSide() {
-    return this.side;
   }
 
   getX() {
     return this.sprite.x;
-  }
-
-  getWidth() {
-    return this.sprite.displayWidth;
-  }
-
-  setHorizontalVelocity(direction: number) {
-    this.sprite.setVelocityX(direction * PONG_CONFIG.paddle.speed);
-  }
-
-  clampToBounds(width: number) {
-    const halfWidth = this.sprite.displayWidth / 2;
-    const leftLimit = PONG_CONFIG.arenaPadding + halfWidth;
-    const rightLimit = width - PONG_CONFIG.arenaPadding - halfWidth;
-    const clampedX = Phaser.Math.Clamp(this.sprite.x, leftLimit, rightLimit);
-
-    this.sprite.setX(clampedX);
   }
 
   setPosition(x: number, y: number) {
@@ -67,6 +27,8 @@ export class Paddle {
   }
 
   playImpactFeedback() {
+    this.scene.tweens.killTweensOf(this.sprite);
+    this.sprite.setScale(1);
     this.scene.tweens.add({
       targets: this.sprite,
       scaleX: 1.06,
@@ -75,6 +37,11 @@ export class Paddle {
       yoyo: true,
       ease: 'Sine.easeOut',
     });
+  }
+
+  destroy() {
+    this.scene.tweens.killTweensOf(this.sprite);
+    this.sprite.destroy();
   }
 
   private ensureTexture() {

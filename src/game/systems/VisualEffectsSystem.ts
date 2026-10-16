@@ -52,6 +52,12 @@ export class VisualEffectsSystem {
     this.glow.setAlpha(0.14 + Math.sin(time * 0.004) * 0.04);
   }
 
+  /** Hide the glow and stop the trail while there is no ball on the table. */
+  setBallVisible(visible: boolean) {
+    this.glow.setVisible(visible);
+    this.trail.emitting = visible;
+  }
+
   followBall() {
     this.trail.startFollow(this.trailAnchor, 0, 0, true);
   }
@@ -88,7 +94,6 @@ export class VisualEffectsSystem {
   playScoreExplosion(x: number, y: number) {
     this.emitter.explode(24, x, y);
     this.scene.cameras.main.shake(30, 0.004);
-    this.scene.cameras.main.flash(100, 200, 140, 255, false);
     audioManager.playScore();
   }
 

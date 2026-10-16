@@ -8,6 +8,7 @@ export function PhaserStage() {
   const {
     croppedAvatarUrl,
     faceBallMode,
+    difficulty,
     gameMode,
     multiplayerRole,
     roomCode,
@@ -15,6 +16,8 @@ export function PhaserStage() {
     opponentName,
     opponentAvatarUrl,
     resetToMenu,
+    leaveRoom,
+    setUiStage,
   } = useFaceUploadStore();
 
   useEffect(() => {
@@ -36,7 +39,7 @@ export function PhaserStage() {
         onExit: () => {
           socketService.sendExit();
           socketService.disconnect();
-          resetToMenu();
+          leaveRoom('mainMenu');
         },
       });
     } else {
@@ -44,9 +47,10 @@ export function PhaserStage() {
         mode: 'cpu',
         croppedAvatarUrl,
         faceBallMode,
+        difficulty,
         playerName,
         onExit: () => resetToMenu(),
-        onChangeDifficulty: () => resetToMenu(),
+        onChangeDifficulty: () => setUiStage('cpuSetup'),
       });
     }
 

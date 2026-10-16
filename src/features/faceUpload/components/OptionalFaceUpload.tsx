@@ -14,29 +14,33 @@ import { faceDetectorService } from '../FaceDetectorService';
 export function OptionalFaceUpload() {
   const {
     image,
-    detection,
     croppedAvatarUrl,
     showCropEditor,
     selectImage,
     clearImage,
     setDetection,
     setCroppedAvatarUrl,
-    setShowCropEditor,
   } = useFaceUploadStore();
 
-  const [isDetecting, setIsDetecting] = useState(false);
+  // previewUrl of the image whose detection pass has finished (found a face or not)
+  const [detectedFor, setDetectedFor] = useState<string | null>(null);
+  const isDetecting = !!image && showCropEditor && detectedFor !== image.previewUrl;
   const inputId = 'optional-face-upload-input';
 
   // Auto-run face detection when a new image arrives
   useEffect(() => {
-    if (!image || !showCropEditor || detection) return;
+    if (!image || !showCropEditor || detectedFor === image.previewUrl) return;
 
-    setIsDetecting(true);
+    let cancelled = false;
+    const done = () => {
+      if (!cancelled) setDetectedFor(image.previewUrl);
+    };
     const img = new Image();
     img.src = image.previewUrl;
     img.onload = async () => {
       try {
         const result = await faceDetectorService.detect(img);
+        if (cancelled) return;
         if (result.detections && result.detections.length > 0) {
           const face = result.detections[0];
           const box = face.boundingBox;
@@ -61,13 +65,18 @@ export function OptionalFaceUpload() {
           setDetection(null);
         }
       } catch {
-        setDetection(null);
+        // Detection is a convenience — without it the player just crops by hand.
+        if (!cancelled) setDetection(null);
       } finally {
-        setIsDetecting(false);
+        done();
       }
     };
-    img.onerror = () => setIsDetecting(false);
-  }, [image, showCropEditor, detection, setDetection]);
+    img.onerror = done;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [image, showCropEditor, detectedFor, setDetection]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -152,7 +161,7 @@ export function OptionalFaceUpload() {
         <button
           type="button"
           className="ofu__small-btn"
-          onClick={() => setShowCropEditor(true)}
+          onClick={() => document.getElementById(inputId)?.click()}
         >
           Change Face
         </button>

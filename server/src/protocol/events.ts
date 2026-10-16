@@ -1,5 +1,5 @@
 // ─── Shared protocol: event names + payload types ────────────────────────────
-// This file is imported by both server and client.
+// This file is mirrored at src/protocol/events.ts for the client.
 // Never import Phaser or Node-only modules here.
 
 export type Role = 'host' | 'guest';
@@ -34,6 +34,11 @@ export type RoomJoinPayload = {
 export type InputUpdatePayload = {
   direction: -1 | 0 | 1;
   seq: number;
+  /**
+   * Touch/mouse control: the x position the paddle should glide towards.
+   * When set it takes priority over direction. The server still caps speed.
+   */
+  targetX?: number | null;
 };
 
 export type MatchRejoinPayload = {
@@ -50,6 +55,7 @@ export const SERVER_EVENTS = {
   ROOM_CREATED: 'room:created',
   ROOM_JOINED: 'room:joined',
   ROOM_OPPONENT_JOINED: 'room:opponent_joined',
+  ROOM_OPPONENT_LEFT: 'room:opponent_left',
   ROOM_ERROR: 'room:error',
   LOBBY_OPPONENT_READY: 'lobby:opponent_ready',
   MATCH_START: 'match:start',
@@ -61,6 +67,7 @@ export const SERVER_EVENTS = {
   MATCH_OVER: 'match:over',
   MATCH_REMATCH_VOTE: 'match:rematch_vote',
   MATCH_REMATCH_START: 'match:rematch_start',
+  MATCH_REJOINED: 'match:rejoined',
   PLAYER_DISCONNECTED: 'player:disconnected',
   PLAYER_RECONNECTED: 'player:reconnected',
   MATCH_STATE_CHANGE: 'match:state_change',
@@ -96,13 +103,20 @@ export type MatchStartPayload = {
   hostIsTop: boolean;
 };
 
+/**
+ * Sent every server tick while a match is running (including countdowns and
+ * the pause after a point). Carries match state and score so a client that
+ * missed a one-off event still converges on the truth.
+ */
 export type StateSnapshot = {
   seq: number;
+  timestamp: number;
+  state: MatchState;
   ball: { x: number; y: number; vx: number; vy: number };
   hostPaddleX: number;
   guestPaddleX: number;
-  lastAckedInputSeq: number;
-  timestamp: number;
+  topScore: number;
+  bottomScore: number;
 };
 
 export type GameScorePayload = {
@@ -142,9 +156,16 @@ export type MatchRematchStartPayload = {
   serveDirection: ServeDirection;
 };
 
+export type MatchRejoinedPayload = {
+  topScore: number;
+  bottomScore: number;
+};
+
 export type PlayerDisconnectedPayload = {
   role: Role;
   reason: string;
+  /** How long the server will wait for the player to come back. */
+  graceMs: number;
 };
 
 export type PongPayload = {

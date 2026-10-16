@@ -24,6 +24,8 @@ export class GameHud {
   private readonly bottomNameLabel: Phaser.GameObjects.Text;
   private readonly exitButtonContainer: Phaser.GameObjects.Container;
   private readonly pingText?: Phaser.GameObjects.Text;
+  private readonly playAgainBg: Phaser.GameObjects.Rectangle;
+  private readonly playAgainText: Phaser.GameObjects.Text;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -161,7 +163,7 @@ export class GameHud {
     playBg.setRounded(21);
     playBg.setInteractive({ useHandCursor: true });
 
-    const playText = this.scene.add.text(0, 76, 'PLAY AGAIN', {
+    const playText = this.scene.add.text(0, 76, isOnline ? 'REMATCH' : 'PLAY AGAIN', {
       fontFamily: this.roundedFont,
       fontSize: '13px',
       color: '#ffffff',
@@ -169,6 +171,8 @@ export class GameHud {
     });
     playText.setOrigin(0.5);
     playText.setLetterSpacing(1.5);
+    this.playAgainBg = playBg;
+    this.playAgainText = playText;
 
     const diffBg = this.scene.add.rectangle(0, 128, 280, 42, 0xffffff, 1);
     diffBg.setStrokeStyle(2, 0x7b5ce6, 1);
@@ -223,7 +227,7 @@ export class GameHud {
     addHover(diffBg, diffText);
     addHover(returnBg, returnText);
 
-    const winPanelChildren: any[] = [
+    const winPanelChildren: Phaser.GameObjects.GameObject[] = [
       winBackdrop,
       this.winTitleText,
       this.winSubtitleText,
@@ -297,7 +301,7 @@ export class GameHud {
     this.countdownText.setAlpha(1);
     this.countdownText.setScale(0.84);
     if (isGo) {
-      this.countdownText.setColor(PONG_CONFIG.colors.pink);
+      this.countdownText.setColor('#FF8DC7');
       this.countdownText.setShadow(0, 0, '#FF8DC7', 22, false, true);
     } else {
       this.countdownText.setColor(PONG_CONFIG.colors.text);
@@ -346,19 +350,30 @@ export class GameHud {
     this.messageText.setAlpha(0);
   }
 
-  showWinScreen(outcome: 'victory' | 'defeat', stats: MatchStats) {
+  /** Relabel the win panel's primary button (e.g. while waiting on a rematch vote). */
+  setPlayAgainLabel(label: string, enabled = true) {
+    this.playAgainText.setText(label);
+    this.playAgainBg.setFillStyle(enabled ? 0x7b5ce6 : 0xb9aee0, 1);
+    if (enabled) {
+      this.playAgainBg.setInteractive({ useHandCursor: true });
+    } else {
+      this.playAgainBg.disableInteractive();
+    }
+  }
+
+  showWinScreen(outcome: 'victory' | 'defeat', stats: MatchStats, note?: string) {
     const config = this.scene.registry.get('customConfig');
     const playerName = config?.playerName ?? 'Player';
     const isOnline = config?.mode === 'online';
     const opponentName = isOnline ? (config?.opponentName ?? 'Opponent') : 'CPU';
 
     if (outcome === 'victory') {
-      this.winTitleText.setText('🏆 VICTORY');
+      this.winTitleText.setText('VICTORY');
       this.winTitleText.setColor('#7B5CE6');
       this.winSubtitleText.setText(`${playerName} wins!`);
       this.winSubtitleText.setColor('#7B5CE6');
     } else {
-      this.winTitleText.setText('💀 DEFEAT');
+      this.winTitleText.setText('DEFEAT');
       this.winTitleText.setColor('#E65C5C');
       this.winSubtitleText.setText(`${opponentName} wins!`);
       this.winSubtitleText.setColor('#E65C5C');
@@ -374,12 +389,11 @@ export class GameHud {
           `Difficulty: ${DIFFICULTY_PRESETS[(config?.difficulty as Difficulty) ?? 'medium'].label}`,
           `Longest Rally: ${stats.longestRally} hits`,
         ];
+    if (note) statsLines.unshift(note);
     this.winStatsText.setText(statsLines.join('\n'));
 
-    // Save stats to localStorage (CPU mode only — difficulty tracking is CPU-specific)
-    if (!isOnline) {
-      this.persistStats(outcome, stats, (config?.difficulty as Difficulty) ?? 'medium');
-    }
+    this.setPlayAgainLabel(isOnline ? 'REMATCH' : 'PLAY AGAIN');
+    this.persistStats(outcome, stats, isOnline ? null : ((config?.difficulty as Difficulty) ?? 'medium'));
 
     this.winPanel.setAlpha(1);
     this.winPanel.setScale(0.92);
@@ -411,7 +425,8 @@ export class GameHud {
     this.pingText?.destroy();
   }
 
-  private persistStats(outcome: 'victory' | 'defeat', stats: MatchStats, difficulty: Difficulty) {
+  /** difficulty is null for online matches, which don't count towards "best difficulty". */
+  private persistStats(outcome: 'victory' | 'defeat', stats: MatchStats, difficulty: Difficulty | null) {
     try {
       const raw = localStorage.getItem('facepong-stats');
       const saved = raw ? JSON.parse(raw) : { wins: 0, losses: 0, matchesPlayed: 0, longestRally: 0, highestDifficultyBeaten: '' };
@@ -420,10 +435,10 @@ export class GameHud {
       if (outcome === 'victory') {
         saved.wins += 1;
         const order: Difficulty[] = ['easy', 'medium', 'hard', 'nightmare'];
-        const currentIdx = order.indexOf(difficulty);
+        const currentIdx = difficulty ? order.indexOf(difficulty) : -1;
         const savedIdx = order.indexOf(saved.highestDifficultyBeaten);
         if (currentIdx > savedIdx) {
-          saved.highestDifficultyBeaten = difficulty;
+          saved.highestDifficultyBeaten = difficulty ?? saved.highestDifficultyBeaten;
         }
       } else {
         saved.losses += 1;

@@ -2,6 +2,18 @@ import type { Server, Socket } from 'socket.io';
 import { Room } from './Room.js';
 import { generateRoomCode } from '../protocol/roomCode.js';
 import { SERVER_EVENTS, CLIENT_EVENTS } from '../protocol/events.js';
+import {
+  asRecord,
+  sanitizeAvatar,
+  sanitizeDirection,
+  sanitizeName,
+  sanitizeRoomCode,
+  sanitizeSeq,
+  sanitizeTargetX,
+  sanitizeToken,
+} from '../protocol/validation.js';
+
+const MAX_ROOMS = 500;
 
 export class RoomManager {
   private readonly rooms = new Map<string, Room>();
@@ -13,8 +25,16 @@ export class RoomManager {
     this.io = io;
   }
 
-  createRoom(socket: Socket, playerName: string, avatarDataUrl: string | null): Room {
-    // Generate a unique code
+  get roomCount(): number {
+    return this.rooms.size;
+  }
+
+  createRoom(socket: Socket, playerName: string, avatarDataUrl: string | null): void {
+    if (this.rooms.size >= MAX_ROOMS) {
+      socket.emit(SERVER_EVENTS.ROOM_ERROR, { message: 'The server is full right now. Try again in a minute.' });
+      return;
+    }
+
     let code = generateRoomCode();
     while (this.rooms.has(code)) {
       code = generateRoomCode();
@@ -25,45 +45,41 @@ export class RoomManager {
     this.rooms.set(code, room);
     this.socketToRoom.set(socket.id, code);
 
-    console.log(`[Room ${code}] Created by ${playerName} (${socket.id})`);
+    console.log(`[Room ${code}] Created (${socket.id})`);
 
-    socket.emit(SERVER_EVENTS.ROOM_CREATED, { 
-      code, 
+    socket.emit(SERVER_EVENTS.ROOM_CREATED, {
+      code,
       role: 'host',
       reconnectToken: room.host!.reconnectToken,
     });
-    return room;
   }
 
-  joinRoom(socket: Socket, code: string, playerName: string, avatarDataUrl: string | null): void {
-    const upperCode = code.toUpperCase().trim();
-    const room = this.rooms.get(upperCode);
+  joinRoom(socket: Socket, code: string | null, playerName: string, avatarDataUrl: string | null): void {
+    const room = code ? this.rooms.get(code) : undefined;
 
-    if (!room) {
-      socket.emit(SERVER_EVENTS.ROOM_ERROR, { message: 'Room not found. Check your code and try again.' });
+    if (!code || !room) {
+      socket.emit(SERVER_EVENTS.ROOM_ERROR, { message: 'Room not found. Check the code and try again.' });
       return;
     }
 
-    if (room.isFull()) {
-      socket.emit(SERVER_EVENTS.ROOM_ERROR, { message: 'Room is full.' });
+    if (!room.isJoinable()) {
+      socket.emit(SERVER_EVENTS.ROOM_ERROR, { message: 'That room is already full.' });
       return;
     }
 
     room.addGuest(socket, playerName, avatarDataUrl);
-    this.socketToRoom.set(socket.id, upperCode);
+    this.socketToRoom.set(socket.id, code);
 
-    console.log(`[Room ${upperCode}] ${playerName} joined as guest (${socket.id})`);
+    console.log(`[Room ${code}] Guest joined (${socket.id})`);
 
-    // Notify guest
     socket.emit(SERVER_EVENTS.ROOM_JOINED, {
-      code: upperCode,
+      code,
       role: 'guest',
       opponentName: room.host?.playerName ?? 'Host',
       opponentAvatarUrl: room.host?.avatarDataUrl ?? null,
       reconnectToken: room.guest!.reconnectToken,
     });
 
-    // Notify host
     if (room.host) {
       this.io.to(room.host.socketId).emit(SERVER_EVENTS.ROOM_OPPONENT_JOINED, {
         opponentName: playerName,
@@ -78,11 +94,13 @@ export class RoomManager {
     return this.rooms.get(code) ?? null;
   }
 
-  hasRoom(code: string): boolean {
-    return this.rooms.has(code.toUpperCase().trim());
+  /** Used by the invite-link check: does this room exist, and can someone still join it? */
+  getRoomStatus(code: string | null): { exists: boolean; joinable: boolean } {
+    const room = code ? this.rooms.get(code) : undefined;
+    return { exists: !!room, joinable: !!room && room.isJoinable() };
   }
 
-  getRoomByToken(token: string): Room | null {
+  private getRoomByToken(token: string): Room | null {
     for (const room of this.rooms.values()) {
       if (room.getPlayerByToken(token)) return room;
     }
@@ -90,79 +108,103 @@ export class RoomManager {
   }
 
   destroyRoom(code: string) {
-    const room = this.rooms.get(code);
-    if (!room) return;
+    if (!this.rooms.delete(code)) return;
 
-    // Clean up socket-to-room mappings for all sockets associated with this room
     for (const [socketId, mappedCode] of this.socketToRoom.entries()) {
       if (mappedCode === code) {
         this.socketToRoom.delete(socketId);
       }
     }
 
-    this.rooms.delete(code);
     console.log(`[Room ${code}] Destroyed`);
   }
 
   handleDisconnect(socketId: string) {
     const room = this.getRoomBySocket(socketId);
-    if (!room) return;
     this.socketToRoom.delete(socketId);
-    room.handleDisconnect(socketId);
+    room?.handleDisconnect(socketId);
   }
 
   registerSocketEvents(socket: Socket) {
-    socket.on(CLIENT_EVENTS.ROOM_CREATE, ({ playerName, avatarDataUrl }) => {
-      // Prevent double-joining
+    // A throwing handler must never take the whole server (and every other
+    // room) down with it, so every listener goes through this wrapper.
+    const on = (event: string, handler: (payload: Record<string, unknown>) => void) => {
+      socket.on(event, (payload: unknown) => {
+        try {
+          handler(asRecord(payload));
+        } catch (error) {
+          console.error(`[Socket ${socket.id}] Error handling "${event}":`, error);
+        }
+      });
+    };
+
+    on(CLIENT_EVENTS.ROOM_CREATE, (payload) => {
       if (this.socketToRoom.has(socket.id)) {
         socket.emit(SERVER_EVENTS.ROOM_ERROR, { message: 'You are already in a room.' });
         return;
       }
-      this.createRoom(socket, playerName ?? 'Player', avatarDataUrl ?? null);
+      this.createRoom(socket, sanitizeName(payload.playerName), sanitizeAvatar(payload.avatarDataUrl));
     });
 
-    socket.on(CLIENT_EVENTS.ROOM_JOIN, ({ code, playerName, avatarDataUrl }) => {
+    on(CLIENT_EVENTS.ROOM_JOIN, (payload) => {
       if (this.socketToRoom.has(socket.id)) {
         socket.emit(SERVER_EVENTS.ROOM_ERROR, { message: 'You are already in a room.' });
         return;
       }
-      this.joinRoom(socket, code ?? '', playerName ?? 'Player', avatarDataUrl ?? null);
+      this.joinRoom(
+        socket,
+        sanitizeRoomCode(payload.code),
+        sanitizeName(payload.playerName),
+        sanitizeAvatar(payload.avatarDataUrl),
+      );
     });
 
-    socket.on(CLIENT_EVENTS.LOBBY_READY, () => {
-      const room = this.getRoomBySocket(socket.id);
-      room?.setReady(socket.id);
+    on(CLIENT_EVENTS.LOBBY_READY, () => {
+      this.getRoomBySocket(socket.id)?.setReady(socket.id);
     });
 
-    socket.on(CLIENT_EVENTS.INPUT_UPDATE, ({ direction, seq }) => {
-      const room = this.getRoomBySocket(socket.id);
-      room?.handleInput(socket.id, direction, seq);
+    on(CLIENT_EVENTS.INPUT_UPDATE, (payload) => {
+      const direction = sanitizeDirection(payload.direction);
+      if (direction === null) return;
+      this.getRoomBySocket(socket.id)?.handleInput(
+        socket.id,
+        direction,
+        sanitizeTargetX(payload.targetX),
+        sanitizeSeq(payload.seq),
+      );
     });
 
-    socket.on(CLIENT_EVENTS.MATCH_REMATCH, () => {
-      const room = this.getRoomBySocket(socket.id);
-      room?.handleRematch(socket.id);
+    on(CLIENT_EVENTS.MATCH_REMATCH, () => {
+      this.getRoomBySocket(socket.id)?.handleRematch(socket.id);
     });
 
-    socket.on(CLIENT_EVENTS.MATCH_EXIT, () => {
+    on(CLIENT_EVENTS.MATCH_EXIT, () => {
       const room = this.getRoomBySocket(socket.id);
-      if (room) {
-        this.socketToRoom.delete(socket.id);
-        room.handleExit(socket.id);
+      if (!room) return;
+      room.handleExit(socket.id);
+      this.socketToRoom.delete(socket.id);
+    });
+
+    on(CLIENT_EVENTS.MATCH_REJOIN, (payload) => {
+      const token = sanitizeToken(payload.token);
+      const room = token ? this.getRoomByToken(token) : null;
+      const result = room && token ? room.handleRejoin(socket, token) : { ok: false as const };
+
+      if (!room || !result.ok) {
+        socket.emit(SERVER_EVENTS.ROOM_CLOSED, { reason: 'That match is no longer available.' });
+        return;
+      }
+
+      this.socketToRoom.set(socket.id, room.code);
+      if (result.replacedSocketId) {
+        // Unmap first so the stale socket's disconnect doesn't pause the match.
+        this.socketToRoom.delete(result.replacedSocketId);
+        this.io.sockets.sockets.get(result.replacedSocketId)?.disconnect(true);
       }
     });
 
-    socket.on(CLIENT_EVENTS.MATCH_REJOIN, ({ token }) => {
-      if (!token) return;
-      const room = this.getRoomByToken(token);
-      if (room) {
-        this.socketToRoom.set(socket.id, room.code);
-        room.handleRejoin(socket, token);
-      }
-    });
-
-    socket.on(CLIENT_EVENTS.PING, ({ clientTime }) => {
-      socket.emit(SERVER_EVENTS.PONG, { serverTime: Date.now(), clientTime });
+    on(CLIENT_EVENTS.PING, (payload) => {
+      socket.emit(SERVER_EVENTS.PONG, { serverTime: Date.now(), clientTime: sanitizeSeq(payload.clientTime) });
     });
   }
 }

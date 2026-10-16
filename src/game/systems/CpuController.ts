@@ -1,95 +1,69 @@
-import Phaser from 'phaser';
+import { PONG_CONFIG, DIFFICULTY_PRESETS, type Difficulty, type DifficultyPreset } from '../config/pongConfig';
+import type { PaddleControl, PongSimulation } from './PongSimulation';
 
-import { PONG_CONFIG, DIFFICULTY_PRESETS, type Difficulty } from '../config/pongConfig';
-import type { Paddle } from '../entities/Paddle';
-import type { Ball } from '../entities/Ball';
-
+/**
+ * Drives the top paddle. Each time the player sends the ball its way the CPU:
+ *   1. waits out its reaction time,
+ *   2. predicts where the ball will arrive (misjudging by up to aimError),
+ *   3. lines up slightly off-centre so its return comes back at an angle.
+ * Between shots it drifts part-way back to the middle, which is what leaves
+ * the corners open for a well-placed shot.
+ */
 export class CpuController {
-  private readonly scene: Phaser.Scene;
-  private readonly preset;
-
+  private readonly preset: DifficultyPreset;
   private targetX: number;
-  private lastUpdateTime = 0;
-  private errorOffset = 0;
+  private wasIncoming = false;
+  private reactAt = 0;
+  private aimError = 0;
+  private aimOffset = 0;
 
-
-  constructor(scene: Phaser.Scene, difficulty: Difficulty) {
-    this.scene = scene;
+  constructor(difficulty: Difficulty, arenaWidth: number) {
     this.preset = DIFFICULTY_PRESETS[difficulty];
-    this.targetX = scene.scale.width / 2;
+    this.targetX = arenaWidth / 2;
   }
 
-  update(paddle: Paddle, ball: Ball, width: number) {
-    const now = this.scene.time.now;
+  update(sim: PongSimulation, now: number): PaddleControl {
+    const incoming = sim.isBallInPlay && sim.ball.vy < 0;
 
-    // Only recalculate target after reaction delay
-    if (now - this.lastUpdateTime > this.preset.reactionDelay) {
-      this.lastUpdateTime = now;
-      this.targetX = this.predictInterceptX(ball, width);
+    if (incoming && !this.wasIncoming) {
+      this.reactAt = now + this.preset.reactionDelay;
+      this.aimError = randomBetween(-this.preset.aimError, this.preset.aimError);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      this.aimOffset =
+        side * this.preset.aggression * (PONG_CONFIG.paddle.width / 2) * randomBetween(0.4, 1);
+    } else if (!incoming && this.wasIncoming) {
+      // Shot returned (or point over): ease back towards the middle.
+      const center = sim.width / 2;
+      this.targetX = center + (sim.topPaddleX - center) * 0.35;
+    }
+    this.wasIncoming = incoming;
 
-      // Apply accuracy error
-      if (this.preset.accuracy < 1) {
-        const maxError = PONG_CONFIG.paddle.width * (1 - this.preset.accuracy);
-        this.errorOffset = Phaser.Math.FloatBetween(-maxError, maxError);
-      } else {
-        this.errorOffset = 0;
-      }
+    if (incoming && now >= this.reactAt) {
+      this.targetX = this.predictInterceptX(sim) + this.aimError + this.aimOffset;
     }
 
-    const target = this.targetX + this.errorOffset;
-    const paddleX = paddle.getX();
-    const deadZone = 6;
-
-    const diff = target - paddleX;
-    if (Math.abs(diff) < deadZone) {
-      paddle.setHorizontalVelocity(0);
-    } else {
-      const dir = diff > 0 ? 1 : -1;
-      paddle.setHorizontalVelocity(dir * this.preset.speedMultiplier);
-    }
+    return { direction: 0, targetX: this.targetX, speedScale: this.preset.speedMultiplier };
   }
 
-  private predictInterceptX(ball: Ball, width: number): number {
-    const body = ball.getSprite().body as Phaser.Physics.Arcade.Body;
-    const vy = body.velocity.y;
-    const vx = body.velocity.x;
+  /** Where the ball will cross the CPU's paddle line, accounting for wall bounces. */
+  private predictInterceptX(sim: PongSimulation): number {
+    const { x, y, vx, vy } = sim.ball;
+    const radius = PONG_CONFIG.ball.radius;
+    const contactY = PONG_CONFIG.paddle.topOffset + PONG_CONFIG.paddle.height / 2 + radius;
+    const time = (contactY - y) / vy; // vy < 0 and the ball is below the line → positive
+    if (!(time > 0)) return x;
 
-    // Ball moving away from CPU (downward) — return to center
-    if (vy >= 0) {
-      return width / 2;
-    }
+    const left = PONG_CONFIG.arenaPadding + radius;
+    const span = sim.width - PONG_CONFIG.arenaPadding - radius - left;
+    const period = span * 2;
 
-    // Predict time to reach the CPU paddle y-position
-    const targetY = PONG_CONFIG.paddle.topOffset;
-    const dy = targetY - ball.getY();
-    const timeToReach = dy / vy; // vy is negative, dy is negative, so positive result
-
-    if (timeToReach <= 0) {
-      return width / 2;
-    }
-
-    // Predict x-position, simulating wall bounces
-    let predictedX = ball.getX() + vx * timeToReach;
-
-    // Simulate wall bounces within arena bounds
-    const leftWall = PONG_CONFIG.arenaPadding + PONG_CONFIG.ball.radius;
-    const rightWall = width - PONG_CONFIG.arenaPadding - PONG_CONFIG.ball.radius;
-    const arenaWidth = rightWall - leftWall;
-
-    if (arenaWidth > 0) {
-      // Normalize position relative to left wall
-      predictedX -= leftWall;
-      // Use modular reflection to handle bounces
-      const cycles = Math.floor(predictedX / arenaWidth);
-      predictedX = predictedX - cycles * arenaWidth;
-      if (predictedX < 0) predictedX = -predictedX;
-      // If in an odd cycle, reflect
-      const segment = Math.floor(predictedX / arenaWidth);
-      const remainder = predictedX - segment * arenaWidth;
-      predictedX = segment % 2 === 0 ? remainder : arenaWidth - remainder;
-      predictedX += leftWall;
-    }
-
-    return Phaser.Math.Clamp(predictedX, PONG_CONFIG.arenaPadding, width - PONG_CONFIG.arenaPadding);
+    // Unfold the wall bounces: travel in a straight line, then fold back.
+    let rel = (((x + vx * time - left) % period) + period) % period;
+    if (rel > span) rel = period - rel;
+    return left + rel;
   }
+}
+
+function randomBetween(min: number, max: number): number {
+  return min + Math.random() * (max - min);
 }

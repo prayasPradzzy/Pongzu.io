@@ -49,6 +49,8 @@ export type FaceUploadActions = {
   clearImage: () => void;
   beginMatch: () => void;
   resetToMenu: () => void;
+  /** Drop all room state and go to the given screen (name and face are kept). */
+  leaveRoom: (stage: UiStage) => void;
   setDetection: (detection: FaceDetectionResult | null) => void;
   setCroppedAvatarUrl: (url: string | null) => void;
   setFaceBallMode: (enabled: boolean) => void;
@@ -60,7 +62,7 @@ export type FaceUploadActions = {
   setGameMode: (mode: 'cpu' | 'online') => void;
   setMultiplayerRole: (role: 'host' | 'guest' | null) => void;
   setRoomCode: (code: string | null) => void;
-  setOpponent: (name: string, avatarUrl: string | null) => void;
+  setOpponent: (name: string | null, avatarUrl: string | null) => void;
   setConnectionStatus: (status: 'idle' | 'connecting' | 'connected' | 'error') => void;
   setDisconnectReason: (reason: string | null) => void;
   setPlayerName: (name: string) => void;

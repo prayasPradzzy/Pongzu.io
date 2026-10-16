@@ -12,11 +12,16 @@ export const SERVER_PONG_CONFIG = {
     bottomOffset: 56,
   },
   ball: {
-    radius: 14,
+    radius: 18,
     initialSpeed: 500,
     speedBoost: 32,
-    boostEveryHits: 4,
-    maxSpeed: 980,
+    boostEveryHits: 2,
+    maxSpeed: 1040,
+    // How much of the bounce angle comes from where the ball meets the paddle.
+    impactInfluence: 0.72,
+    // Extra angle added when the paddle is moving at impact ("spin").
+    spinInfluence: 0.16,
+    maxXRatio: 0.82,
   },
   pointPauseMs: 1200,
   countdownMs: 500, // ms per countdown tick
@@ -49,11 +54,10 @@ export class ServerBallSimulator {
     this.vy = 0;
   }
 
-  /** Mirror of Ball.serve() — uses seeded random for determinism */
-  serve(direction: ServeDirection, seed: number) {
-    // Deterministic "random" from seed — same formula, different RNG
-    const xRatio = (((seed % 1000) / 1000) * 0.64) - 0.32; // range [-0.32, 0.32]
-    const yRatio = Math.sqrt(Math.max(0.1, 1 - xRatio * xRatio));
+  /** Mirror of Ball.serve() */
+  serve(direction: ServeDirection) {
+    const xRatio = Math.random() * 0.64 - 0.32; // range [-0.32, 0.32]
+    const yRatio = Math.sqrt(1 - xRatio * xRatio);
     const yDirection = direction === 'down' ? 1 : -1;
     this.vx = xRatio * this.speed;
     this.vy = yDirection * yRatio * this.speed;
@@ -70,26 +74,29 @@ export class ServerBallSimulator {
     const leftWall = SERVER_PONG_CONFIG.arenaPadding + radius;
     const rightWall = this.width - SERVER_PONG_CONFIG.arenaPadding - radius;
 
-    // Horizontal wall bounces (at arena frame edges)
-    if (this.x <= leftWall) {
-      this.x = leftWall;
+    // Reflect off the side walls, keeping the distance travelled past the wall.
+    if (this.x < leftWall) {
+      this.x = leftWall + (leftWall - this.x);
       this.vx = Math.abs(this.vx);
-    } else if (this.x >= rightWall) {
-      this.x = rightWall;
+    } else if (this.x > rightWall) {
+      this.x = rightWall - (this.x - rightWall);
       this.vx = -Math.abs(this.vx);
     }
-
-    // Maintain speed after wall bounce (mirror of Ball.maintainSpeed)
-    this.maintainSpeed();
   }
 
-  /** Mirror of Ball.bounceFromPaddle() */
-  bounceFromPaddle(paddleX: number, paddleWidth: number, side: PaddleSide): void {
-    const paddleHalfWidth = paddleWidth / 2;
-    const raw = (this.x - paddleX) / paddleHalfWidth;
+  /**
+   * Mirror of Ball.bounceFromPaddle().
+   * paddleDirection is the paddle's movement at impact (-1, 0, 1) and adds spin.
+   */
+  bounceFromPaddle(paddleX: number, paddleWidth: number, side: PaddleSide, paddleDirection: number): void {
+    const { impactInfluence, spinInfluence, maxXRatio } = SERVER_PONG_CONFIG.ball;
+    const raw = (this.x - paddleX) / (paddleWidth / 2);
     const impactOffset = Math.max(-1, Math.min(1, raw));
-    const xRatio = Math.max(-0.78, Math.min(0.78, impactOffset * 0.72));
-    const yRatio = Math.sqrt(Math.max(0.18, 1 - xRatio * xRatio));
+    const xRatio = Math.max(
+      -maxXRatio,
+      Math.min(maxXRatio, impactOffset * impactInfluence + paddleDirection * spinInfluence),
+    );
+    const yRatio = Math.sqrt(1 - xRatio * xRatio);
     const yDirection = side === 'top' ? 1 : -1;
 
     this.vx = xRatio * this.speed;
@@ -98,7 +105,6 @@ export class ServerBallSimulator {
 
   setSpeed(speed: number) {
     this.speed = speed;
-    this.maintainSpeed();
   }
 
   /** Returns the scoring side if ball is out of bounds, or null */
@@ -110,14 +116,11 @@ export class ServerBallSimulator {
   }
 
   getState() {
-    return { x: this.x, y: this.y, vx: this.vx, vy: this.vy };
+    return { x: round1(this.x), y: round1(this.y), vx: round1(this.vx), vy: round1(this.vy) };
   }
+}
 
-  private maintainSpeed() {
-    const lengthSq = this.vx * this.vx + this.vy * this.vy;
-    if (lengthSq < 0.0001) return;
-    const scale = this.speed / Math.sqrt(lengthSq);
-    this.vx *= scale;
-    this.vy *= scale;
-  }
+/** One decimal place is plenty for rendering and keeps snapshots small. */
+export function round1(value: number): number {
+  return Math.round(value * 10) / 10;
 }

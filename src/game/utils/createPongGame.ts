@@ -55,16 +55,20 @@ export function createPongGame(
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
     backgroundColor: PONG_CONFIG.colors.background,
-    physics: {
-      default: 'arcade',
-      arcade: {
-        gravity: { x: 0, y: 0 },
-        debug: false,
-      },
+    // Gameplay runs on our own PongSimulation / server snapshots, so no
+    // Phaser physics. The loop uses requestAnimationFrame for smooth motion.
+    render: {
+      antialias: true,
+      roundPixels: false,
     },
-    fps: {
-      target: 60,
-      forceSetTimeOut: true,
+    input: {
+      activePointers: 2,
+    },
+    disableContextMenu: true,
+    // All sound goes through our own AudioManager; Phaser's unused audio
+    // context only produced errors when the game was torn down.
+    audio: {
+      noAudio: true,
     },
     scale: {
       mode: Phaser.Scale.FIT,

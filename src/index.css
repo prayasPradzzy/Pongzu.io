@@ -238,6 +238,14 @@ select {
   height: 100%;
 }
 
+.phaser-stage--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7b5ce6;
+  font-weight: 700;
+}
+
 /* Crop Editor Styles */
 .crop-editor-overlay {
   position: fixed;
@@ -341,6 +349,10 @@ select {
 .crop-editor__canvas {
   display: block;
   cursor: grab;
+  max-width: 100%;
+  height: auto;
+  /* dragging the photo must not scroll the page */
+  touch-action: none;
 }
 
 .crop-editor__canvas:active {

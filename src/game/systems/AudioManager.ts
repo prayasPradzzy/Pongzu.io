@@ -38,6 +38,17 @@ export class AudioManager {
     }
   }
 
+  /**
+   * Call from a tap/click/keypress. Browsers (Safari especially) keep audio
+   * suspended until a user gesture resumes it.
+   */
+  unlock() {
+    this.ensureContext();
+    if (this.ctx && this.ctx.state === 'suspended') {
+      void this.ctx.resume().catch(() => {});
+    }
+  }
+
   toggleMute(): boolean {
     this._muted = !this._muted;
     this.saveMuteState();
@@ -222,11 +233,10 @@ export class AudioManager {
 
     this.bgmOsc.stop(this.ctx.currentTime + 1);
 
-    // Clean up references after fade
-    setTimeout(() => {
-      this.bgmOsc = null;
-      this.bgmGain = null;
-    }, 1100);
+    // Drop the references now (the nodes finish their fade on their own) so a
+    // new match started within the fade can begin its own music.
+    this.bgmOsc = null;
+    this.bgmGain = null;
   }
 
   // ─── Persistence ──────────────────────────────────────────────────────────

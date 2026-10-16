@@ -4,12 +4,18 @@ import { Ball } from '../entities/Ball';
 import { Paddle } from '../entities/Paddle';
 import { PONG_CONFIG } from '../config/pongConfig';
 import { GameHud } from '../ui/GameHud';
+import { ArenaBackdrop } from '../ui/ArenaBackdrop';
 import { VisualEffectsSystem } from '../systems/VisualEffectsSystem';
 import { ReconciliationBuffer } from '../systems/ReconciliationBuffer';
 import { NetworkInputEmitter } from '../systems/NetworkInputEmitter';
+import { InputManager } from '../systems/InputManager';
+import { advancePaddle, IDLE_CONTROL } from '../systems/PongSimulation';
 import { audioManager } from '../systems/AudioManager';
-import { socketService as socketServiceInstance } from '../../features/multiplayer/SocketService';
-import type { Role, MatchState, StateSnapshot, GameScorePayload, GameCountdownPayload, GameRoundEndPayload, MatchStateChangePayload, MatchOverPayload, PlayerDisconnectedPayload } from '../../protocol/events';
+import {
+  socketService as socketServiceInstance,
+  type ConnectionStatus,
+} from '../../features/multiplayer/SocketService';
+import type { Role, MatchState, MatchOverPayload, PlayerDisconnectedPayload } from '../../protocol/events';
 
 type SocketServiceType = typeof socketServiceInstance;
 
@@ -17,153 +23,207 @@ type SocketServiceType = typeof socketServiceInstance;
  * Online multiplayer Phaser scene.
  *
  * Ownership contract:
- *   Server owns: ball position/velocity, scores, match state, win/loss
- *   Client owns: rendering, input reading, visual effects, HUD display
+ *   Server owns: ball, both paddles, scores, match state, win/loss
+ *   Client owns: rendering, input, visual effects, HUD
  *
- * The ball is NOT driven by Arcade Physics here — it is setPosition()'d each
- * frame from the ReconciliationBuffer's interpolated snapshot.
+ * The local paddle is predicted from input so it responds instantly, then
+ * gently pulled back to the server's value whenever the two disagree.
+ *
+ * In server space the host is the top paddle. The host's view is flipped
+ * vertically so every player sees themselves at the bottom.
  */
 export class OnlinePongScene extends Phaser.Scene {
   private ball!: Ball;
-  private hostPaddle!: Paddle;   // top paddle — always host
-  private guestPaddle!: Paddle;  // bottom paddle — always guest
+  private myPaddle!: Paddle; // drawn at the bottom
+  private opponentPaddle!: Paddle; // drawn at the top
   private hud!: GameHud;
   private effects!: VisualEffectsSystem;
-  private arenaGraphics!: Phaser.GameObjects.Graphics;
-  private vignetteGraphics!: Phaser.GameObjects.Graphics;
-  private frameGraphics!: Phaser.GameObjects.Graphics;
-  private sparkleGraphics!: Phaser.GameObjects.Graphics;
-  private cloudGraphics!: Phaser.GameObjects.Graphics;
-  private petalGraphics!: Phaser.GameObjects.Graphics;
+  private backdrop!: ArenaBackdrop;
 
+  private inputManager!: InputManager;
   private netInput!: NetworkInputEmitter;
-  private reconcBuffer!: ReconciliationBuffer;
+  private snapshots!: ReconciliationBuffer;
 
   private role!: Role;
+  private flipped = false;
   private socketService!: SocketServiceType;
+  private unsubscribers: Array<() => void> = [];
 
-  // Local-prediction: apply own input immediately to local paddle
   private localPaddleX = 0;
-  private lastBallVx = 0;
-
-  // Disconnect overlay
-  private disconnectOverlay: Phaser.GameObjects.Container | null = null;
-  private disconnectTimerEvent: Phaser.Time.TimerEvent | null = null;
-  private isDisconnected = false;
-  private rematchVoted = false;
-
-  // Server-authoritative match state — gates input and local prediction
+  private lastInputActiveAt = 0;
   private matchState: MatchState = 'lobby';
+  private shownTopScore = 0;
+  private shownBottomScore = 0;
+
+  // For spotting bounces in the rendered ball path
+  private lastBallVx = 0;
+  private lastBallVy = 0;
+
+  private overlay: Phaser.GameObjects.Container | null = null;
+  private overlayTimer: Phaser.Time.TimerEvent | null = null;
+  private opponentAway = false;
+  private connectionLost = false;
+  private matchOver = false;
+  private roomClosed = false;
+  private rematchVoted = false;
 
   constructor() {
     super('online-pong');
   }
 
   create() {
+    const { width, height } = this.scale;
     const config = this.registry.get('customConfig');
     this.role = config?.role ?? 'guest';
+    this.flipped = this.role === 'host';
     this.socketService = config?.socketService;
 
-    this.configureWorld(this.scale.width, this.scale.height);
-    this.drawArenaBackdrop(this.scale.width, this.scale.height);
-
-    const cx = this.scale.width / 2;
-    const h = this.scale.height;
+    this.backdrop = new ArenaBackdrop(this);
+    this.backdrop.draw(width, height);
 
     this.hud = new GameHud(this);
-    this.hud.resize(this.scale.width, h);
+    this.hud.resize(width, height);
     this.effects = new VisualEffectsSystem(this);
 
-    this.hostPaddle = new Paddle(this, 'top', cx, PONG_CONFIG.paddle.topOffset, PONG_CONFIG.colors.paddleTop);
-    this.guestPaddle = new Paddle(this, 'bottom', cx, h - PONG_CONFIG.paddle.bottomOffset, PONG_CONFIG.colors.paddleBottom);
-
-    this.ball = new Ball(this, cx, h / 2);
-
-    // Disable Arcade Physics on ball body — server drives position
-    const ballBody = this.ball.getSprite().body as Phaser.Physics.Arcade.Body;
-    ballBody.enable = false;
-    this.ball.getSprite().setVisible(false); // hide until round starts
-
-    this.localPaddleX = cx;
-    this.reconcBuffer = new ReconciliationBuffer();
-    this.netInput = new NetworkInputEmitter(this, this.socketService);
-
-    this.effects.followBall();
-
-    this.registerSocketListeners();
-
-    this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
-  }
-
-  update() {
-    const width = this.scale.width;
-    const height = this.scale.height;
-
-    if (this.isDisconnected) return;
-
-    // Only process input and local prediction during active gameplay
-    const isPlaying = this.matchState === 'playing';
-
-    if (isPlaying) {
-      // Send our input to server
-      this.netInput.update(this.localPaddleX);
-
-      // Apply local prediction to our own paddle immediately
-      const dir = this.netInput.getDirection();
-      const dt = this.game.loop.delta / 1000;
-      this.localPaddleX += dir * PONG_CONFIG.paddle.speed * dt;
-      const halfW = PONG_CONFIG.paddle.width / 2;
-      const left = PONG_CONFIG.arenaPadding + halfW;
-      const right = width - PONG_CONFIG.arenaPadding - halfW;
-      this.localPaddleX = Math.max(left, Math.min(right, this.localPaddleX));
-    }
-
-    // Apply interpolated server state
-    const snap = this.reconcBuffer.getInterpolatedState();
-    if (snap) {
-      // Ball
-      this.ball.setPosition(snap.ball.x, snap.ball.y);
-      if (isPlaying) {
-        this.ball.getSprite().setVisible(true);
-
-        // Detect wall bounce (X velocity reversed while near a wall)
-        if (this.lastBallVx !== 0 && Math.sign(snap.ball.vx) !== Math.sign(this.lastBallVx)) {
-          const radius = PONG_CONFIG.ball.radius;
-          const leftBound = PONG_CONFIG.arenaPadding + radius * 2;
-          const rightBound = width - PONG_CONFIG.arenaPadding - radius * 2;
-          
-          if (snap.ball.x < leftBound || snap.ball.x > rightBound) {
-            this.effects.playWallBounce(snap.ball.x, snap.ball.y);
-          }
-        }
-        this.lastBallVx = snap.ball.vx;
-      }
-
-      // Opponent's paddle comes from server; local paddle uses prediction
-      if (this.role === 'host') {
-        this.hostPaddle.setPosition(this.localPaddleX, PONG_CONFIG.paddle.topOffset);
-        this.guestPaddle.setPosition(snap.guestPaddleX, height - PONG_CONFIG.paddle.bottomOffset);
-      } else {
-        this.guestPaddle.setPosition(this.localPaddleX, height - PONG_CONFIG.paddle.bottomOffset);
-        this.hostPaddle.setPosition(snap.hostPaddleX, PONG_CONFIG.paddle.topOffset);
-      }
-    }
-
-    // Visual effects track ball
-    this.effects.trackBall(this.ball.getX(), this.ball.getY());
-    this.effects.updateGlow(this.ball.getX(), this.ball.getY(), this.time.now);
-
-    // Avatar badges follow paddles
-    this.hud.setNamePositions(
-      this.hostPaddle.getX(),
-      this.guestPaddle.getX(),
-      PONG_CONFIG.paddle.topOffset,
+    this.opponentPaddle = new Paddle(this, width / 2, PONG_CONFIG.paddle.topOffset, PONG_CONFIG.colors.paddleTop);
+    this.myPaddle = new Paddle(
+      this,
+      width / 2,
       height - PONG_CONFIG.paddle.bottomOffset,
+      PONG_CONFIG.colors.paddleBottom,
     );
 
-    // Update Ping UI
+    this.ball = new Ball(this, width / 2, height / 2);
+    this.ball.setVisible(false);
+    this.effects.setBallVisible(false);
+    this.effects.followBall();
+
+    this.localPaddleX = width / 2;
+    this.snapshots = new ReconciliationBuffer();
+    this.inputManager = new InputManager(this);
+    this.netInput = new NetworkInputEmitter(this.socketService);
+
+    this.registerSocketListeners();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
+    // Destroying the whole game (leaving the screen) skips SHUTDOWN, and the
+    // socket outlives the scene — its listeners must never fire into a dead HUD.
+    this.events.once(Phaser.Scenes.Events.DESTROY, this.releaseExternal, this);
+
+    audioManager.playBGM();
+  }
+
+  update(time: number, delta: number) {
+    const { width, height } = this.scale;
+    const topY = PONG_CONFIG.paddle.topOffset;
+    const bottomY = height - PONG_CONFIG.paddle.bottomOffset;
+
+    // ── Authoritative state (newest packet, no render delay) ──
+    const latest = this.snapshots.getLatest();
+    if (latest && !this.matchOver) {
+      this.matchState = latest.state;
+      this.applyScore(latest.topScore, latest.bottomScore);
+    }
+
+    // ── Local paddle: predict from input, then reconcile ──
+    const blocked = this.opponentAway || this.connectionLost || this.roomClosed || this.matchOver;
+    const canMove =
+      !blocked &&
+      (this.matchState === 'playing' || this.matchState === 'countdown' || this.matchState === 'point_scored');
+    const control = canMove ? this.inputManager.getControl() : IDLE_CONTROL;
+
+    if (canMove) {
+      this.netInput.send(control);
+    } else {
+      this.netInput.release();
+    }
+
+    const moved = advancePaddle(this.localPaddleX, control, Math.min(delta, 100), width);
+    this.localPaddleX = moved.x;
+    if (moved.moved !== 0 || control.direction !== 0) {
+      this.lastInputActiveAt = time;
+    }
+
+    if (latest) {
+      const serverX = this.role === 'host' ? latest.hostPaddleX : latest.guestPaddleX;
+      this.reconcilePaddle(serverX, time, delta);
+    }
+
+    // ── Render the delayed, smoothed world ──
+    const view = this.snapshots.getInterpolatedState();
+    let ballVisible = false;
+
+    if (view) {
+      const opponentX = this.role === 'host' ? view.guestPaddleX : view.hostPaddleX;
+      this.opponentPaddle.setPosition(opponentX, topY);
+
+      ballVisible = view.state === 'playing' && !blocked;
+      if (ballVisible) {
+        const ballX = view.ball.x;
+        const ballY = this.flipped ? height - view.ball.y : view.ball.y;
+        this.ball.setPosition(ballX, ballY);
+        this.ball.roll(view.ball.vx, delta);
+        this.detectBounces(view.ball.vx, view.ball.vy, ballX, ballY, height);
+        this.effects.trackBall(ballX, ballY);
+        this.effects.updateGlow(ballX, ballY, time);
+      } else {
+        this.lastBallVx = 0;
+        this.lastBallVy = 0;
+      }
+    }
+
+    this.ball.setVisible(ballVisible);
+    this.effects.setBallVisible(ballVisible);
+    this.myPaddle.setPosition(this.localPaddleX, bottomY);
+
+    this.hud.setNamePositions(this.opponentPaddle.getX(), this.localPaddleX, topY, bottomY);
     this.hud.setPing(this.socketService.ping);
+  }
+
+  /**
+   * The server's copy of our paddle trails our prediction by roughly one
+   * round trip while we're moving, so only correct what latency can't explain,
+   * and settle exactly onto the server value once we've stopped.
+   */
+  private reconcilePaddle(serverX: number, time: number, delta: number) {
+    const error = serverX - this.localPaddleX;
+    if (Math.abs(error) < 0.5) return;
+
+    const latencySeconds = this.socketService.ping / 1000 + 0.12;
+    const settled = time - this.lastInputActiveAt > latencySeconds * 1000;
+
+    if (settled) {
+      this.localPaddleX += error * Math.min(1, delta / 80);
+      return;
+    }
+
+    const allowance = PONG_CONFIG.paddle.speed * latencySeconds + 20;
+    if (Math.abs(error) > allowance) {
+      this.localPaddleX += error - Math.sign(error) * allowance;
+    }
+  }
+
+  private detectBounces(vx: number, vy: number, x: number, y: number, height: number) {
+    const vyFlipped = this.lastBallVy !== 0 && Math.sign(vy) !== Math.sign(this.lastBallVy);
+    const vxFlipped = this.lastBallVx !== 0 && vx !== 0 && Math.sign(vx) !== Math.sign(this.lastBallVx);
+
+    if (vyFlipped) {
+      this.effects.playPaddleHit(x, y);
+      (y > height / 2 ? this.myPaddle : this.opponentPaddle).playImpactFeedback();
+      this.ball.playHitStretch();
+    } else if (vxFlipped) {
+      this.effects.playWallBounce(x, y);
+    }
+
+    this.lastBallVx = vx;
+    this.lastBallVy = vy;
+  }
+
+  /** Scores arrive in server space (top = host); the HUD wants (opponent, me). */
+  private applyScore(top: number, bottom: number) {
+    if (top === this.shownTopScore && bottom === this.shownBottomScore) return;
+    this.shownTopScore = top;
+    this.shownBottomScore = bottom;
+    this.hud.setScore(this.flipped ? bottom : top, this.flipped ? top : bottom);
   }
 
   // ─── Socket event wiring ───────────────────────────────────────────────────
@@ -172,145 +232,170 @@ export class OnlinePongScene extends Phaser.Scene {
     const svc = this.socketService;
     if (!svc) return;
 
-    svc.onGameStateSnapshot((snap: StateSnapshot) => {
-      this.reconcBuffer.push(snap);
-    });
+    this.unsubscribers = [
+      svc.onGameStateSnapshot((snap) => this.snapshots.push(snap)),
 
-    svc.onGameScore(({ top, bottom }: GameScorePayload) => {
-      this.hud.setScore(top, bottom);
-    });
+      svc.onGameScore(({ top, bottom }) => this.applyScore(top, bottom)),
 
-    svc.onGameCountdown(({ value }: GameCountdownPayload) => {
-      this.hud.showCountdown(value);
-    });
+      svc.onMatchStateChange(({ state }) => {
+        this.matchState = state;
+      }),
 
-    svc.onGameRoundStart(() => {
-      this.hud.hideCountdown();
-      this.hud.hidePointMessage();
-      this.hud.hideMessage();
-      this.ball.getSprite().setVisible(true);
-    });
+      svc.onGameCountdown(({ value }) => {
+        const isGo = value === 'GO';
+        if (isGo) audioManager.playCountdownGo();
+        else audioManager.playCountdownTick();
+        this.hud.showCountdown(value, isGo);
+      }),
 
-    svc.onGameRoundEnd(({ scoringSide }: GameRoundEndPayload) => {
-      // Personalise based on role
-      const localSide = this.role === 'host' ? 'top' : 'bottom';
-      const youScore = scoringSide === localSide;
-      this.hud.showPointMessage(youScore ? '🎉 YOU SCORE' : '😤 OPPONENT SCORES');
-      this.hud.showMessage('POINT');
-      this.effects.playPaddleHit(this.ball.getX(), this.ball.getY());
-      this.cameras.main.flash(80, 0, 229, 255, false);
-      // Hide ball and clear stale interpolation during point-scored freeze
-      this.ball.getSprite().setVisible(false);
-      this.reconcBuffer.clear();
-    });
+      svc.onGameRoundStart(() => {
+        this.hud.hideCountdown();
+        this.hud.hidePointMessage();
+        this.hud.hideMessage();
+        this.ball.resetRotation();
+      }),
 
-    svc.onMatchStateChange(({ state }: MatchStateChangePayload) => {
-      this.matchState = state;
-    });
+      svc.onGameRoundEnd(({ scoringSide }) => {
+        const localSide = this.role === 'host' ? 'top' : 'bottom';
+        this.hud.showPointMessage(scoringSide === localSide ? '🎉 YOU SCORE' : '😤 OPPONENT SCORES');
+        this.hud.showMessage('POINT');
+        this.effects.playScoreExplosion(this.scale.width / 2, this.scale.height / 2);
+        this.cameras.main.flash(80, 0, 229, 255, false);
+        // The ball jumps back to the centre — don't blend across that.
+        this.snapshots.clear();
+      }),
 
-    svc.onMatchOver(({ winner, reason, stats }: MatchOverPayload) => {
-      const localWon = winner === this.role;
-      const outcome = localWon ? 'victory' : 'defeat';
+      svc.onMatchOver((payload) => this.handleMatchOver(payload)),
 
-      if (reason === 'opponent_disconnected') {
-        this.hud.showMessage('OPPONENT LEFT');
-      }
+      svc.onMatchRematchVote(() => {
+        if (!this.rematchVoted && !this.roomClosed) {
+          this.hud.setPlayAgainLabel('ACCEPT REMATCH');
+        }
+      }),
 
-      if (localWon) {
-        audioManager.playWin();
-      } else {
-        audioManager.playLose();
-      }
+      svc.onMatchRematchStart(() => {
+        this.matchOver = false;
+        this.rematchVoted = false;
+        this.matchState = 'countdown';
+        this.localPaddleX = this.scale.width / 2;
+        this.snapshots.clear();
+        this.hud.hideWinScreen();
+        this.applyScore(0, 0);
+      }),
 
-      this.hud.showWinScreen(outcome, {
-        topScore: stats.topScore,
-        bottomScore: stats.bottomScore,
-        longestRally: stats.longestRally,
-      });
-    });
+      svc.onPlayerDisconnected(({ graceMs }: PlayerDisconnectedPayload) => {
+        this.opponentAway = true;
+        this.hud.hideCountdown();
+        this.showOverlay('Your opponent lost connection.', Math.round(graceMs / 1000));
+      }),
 
-    svc.onMatchRematchStart(() => {
-      this.hud.hideWinScreen();
-      this.reconcBuffer.clear();
-      this.ball.getSprite().setVisible(false);
-      this.hud.setScore(0, 0);
-      this.rematchVoted = false;
-    });
+      svc.onPlayerReconnected(() => {
+        this.opponentAway = false;
+        this.snapshots.clear();
+        if (!this.connectionLost) this.hideOverlay();
+      }),
 
-    svc.onPlayerDisconnected(({ role }: PlayerDisconnectedPayload) => {
-      this.isDisconnected = true;
-      this.showDisconnectOverlay(role === this.role ? 'You disconnected' : 'Opponent disconnected…', true);
-    });
+      svc.onMatchRejoined(({ topScore, bottomScore }) => {
+        this.connectionLost = false;
+        this.snapshots.clear();
+        this.applyScore(topScore, bottomScore);
+        if (!this.opponentAway) this.hideOverlay();
+      }),
 
-    svc.onPlayerReconnected(() => {
-      this.isDisconnected = false;
-      this.hideDisconnectOverlay();
-      this.reconcBuffer.clear(); // clear stale buffer on reconnect
-    });
+      svc.onRoomClosed(({ reason }) => {
+        this.roomClosed = true;
+        if (this.matchOver) {
+          this.hud.setPlayAgainLabel('OPPONENT LEFT', false);
+        } else {
+          this.showOverlay(reason || 'The room was closed.');
+        }
+      }),
 
-    svc.onRoomClosed(({ reason }: { reason?: string }) => {
-      this.isDisconnected = true; // stops processing
-      this.showDisconnectOverlay(reason || 'Room closed', false);
-    });
+      svc.onStatusChange((status: ConnectionStatus) => {
+        if (this.roomClosed) return;
+        if (status === 'reconnecting') {
+          this.connectionLost = true;
+          this.hud.hideCountdown();
+          this.showOverlay('Connection lost.\nReconnecting…');
+        } else if (status === 'failed') {
+          this.connectionLost = true;
+          this.roomClosed = true;
+          if (this.matchOver) this.hud.setPlayAgainLabel('DISCONNECTED', false);
+          else this.showOverlay("Couldn't reconnect to the server.");
+        }
+      }),
+    ];
 
-    // Win panel rematch button wires through socket
     this.events.on('rematch', () => {
-      if (!this.rematchVoted) {
-        this.rematchVoted = true;
-        this.socketService.sendRematch();
-      }
+      if (this.rematchVoted || this.roomClosed || !this.matchOver) return;
+      this.rematchVoted = true;
+      this.socketService.sendRematch();
+      this.hud.setPlayAgainLabel('WAITING FOR OPPONENT…', false);
     });
 
     this.events.on('exit-match', () => {
       audioManager.stopBGM();
-      const customConfig = this.registry.get('customConfig');
-      if (customConfig?.onExit) {
-        customConfig.onExit();
-      }
+      this.registry.get('customConfig')?.onExit?.();
     });
-
-    audioManager.playBGM();
   }
 
-  // ─── Disconnect overlay ────────────────────────────────────────────────────
+  private handleMatchOver({ winner, reason, stats }: MatchOverPayload) {
+    this.matchOver = true;
+    this.matchState = 'match_over';
+    this.opponentAway = false;
+    this.hideOverlay();
+    this.hud.hideCountdown();
+    this.hud.hideMessage();
+    this.hud.hidePointMessage();
+    this.applyScore(stats.topScore, stats.bottomScore);
 
-  private showDisconnectOverlay(message: string, showCountdown: boolean) {
-    if (this.disconnectOverlay) return;
+    const localWon = winner === this.role;
+    if (localWon) audioManager.playWin();
+    else audioManager.playLose();
+
+    // showWinScreen treats "bottom" as the local player.
+    this.hud.showWinScreen(localWon ? 'victory' : 'defeat', {
+      topScore: this.flipped ? stats.bottomScore : stats.topScore,
+      bottomScore: this.flipped ? stats.topScore : stats.bottomScore,
+      longestRally: stats.longestRally,
+    }, reason === 'opponent_disconnected' ? 'Your opponent left the match.' : undefined);
+
+    if (reason === 'opponent_disconnected') {
+      // The server has already torn the room down.
+      this.roomClosed = true;
+      this.hud.setPlayAgainLabel('OPPONENT LEFT', false);
+    }
+  }
+
+  // ─── Overlay (disconnects, closed rooms) ───────────────────────────────────
+
+  private showOverlay(message: string, countdownSeconds?: number) {
+    this.hideOverlay();
 
     const { width, height } = this.scale;
+    const font = 'Nunito, system-ui, sans-serif';
+
     const bg = this.add.rectangle(0, 0, 380, 220, 0x0f0820, 0.92);
     bg.setStrokeStyle(2, 0xffb7e1, 0.7);
-    (bg as Phaser.GameObjects.Rectangle & { setRounded: (r: number) => void }).setRounded(20);
+    bg.setRounded(20);
 
-    const txt = this.add.text(0, -50, message, {
-      fontFamily: 'Nunito, system-ui, sans-serif',
+    const text = this.add.text(0, -54, message, {
+      fontFamily: font,
       fontSize: '18px',
       color: '#ffffff',
       align: 'center',
       wordWrap: { width: 320 },
     });
-    txt.setOrigin(0.5);
+    text.setOrigin(0.5);
 
-    let secondsLeft = 15;
-    let countdownTxt: Phaser.GameObjects.Text | null = null;
-    
-    if (showCountdown) {
-      countdownTxt = this.add.text(0, -10, `Waiting ${secondsLeft}s for reconnect...`, {
-        fontFamily: 'Nunito, system-ui, sans-serif',
-        fontSize: '14px',
-        color: '#ffb7e1',
-        align: 'center',
-      });
-      countdownTxt.setOrigin(0.5);
-    }
-
-    const returnBg = this.add.rectangle(0, 50, 280, 42, 0xffffff, 1);
+    const returnBg = this.add.rectangle(0, 54, 280, 42, 0xffffff, 1);
     returnBg.setStrokeStyle(2, 0xff8dc7, 1);
-    (returnBg as Phaser.GameObjects.Rectangle & { setRounded: (r: number) => void }).setRounded(21);
+    returnBg.setRounded(21);
     returnBg.setInteractive({ useHandCursor: true });
+    returnBg.on('pointerdown', () => this.events.emit('exit-match'));
 
-    const returnText = this.add.text(0, 50, 'RETURN TO MENU', {
-      fontFamily: 'Nunito, system-ui, sans-serif',
+    const returnText = this.add.text(0, 54, 'RETURN TO MENU', {
+      fontFamily: font,
       fontSize: '13px',
       color: '#ff8dc7',
       fontStyle: '800',
@@ -318,138 +403,56 @@ export class OnlinePongScene extends Phaser.Scene {
     returnText.setOrigin(0.5);
     returnText.setLetterSpacing(1.5);
 
-    returnBg.on('pointerdown', () => {
-      this.events.emit('exit-match');
-    });
+    const children: Phaser.GameObjects.GameObject[] = [bg, text, returnBg, returnText];
 
-    returnBg.on('pointerover', () => { returnBg.setScale(1.03); returnText.setScale(1.03); });
-    returnBg.on('pointerout', () => { returnBg.setScale(1); returnText.setScale(1); });
+    if (countdownSeconds !== undefined) {
+      let secondsLeft = countdownSeconds;
+      const label = () => `Waiting ${secondsLeft}s for them to return…`;
+      const countdownText = this.add.text(0, -6, label(), {
+        fontFamily: font,
+        fontSize: '14px',
+        color: '#ffb7e1',
+        align: 'center',
+      });
+      countdownText.setOrigin(0.5);
+      children.push(countdownText);
 
-    const overlayElements: Phaser.GameObjects.GameObject[] = [bg, txt, returnBg, returnText];
-    if (countdownTxt) overlayElements.push(countdownTxt);
-
-    this.disconnectOverlay = this.add.container(width / 2, height / 2, overlayElements);
-    this.disconnectOverlay.setDepth(100);
-
-    if (showCountdown) {
-      this.disconnectTimerEvent = this.time.addEvent({
+      // Display only — the server decides when the wait is over.
+      this.overlayTimer = this.time.addEvent({
         delay: 1000,
-        repeat: 14,
+        repeat: countdownSeconds - 1,
         callback: () => {
-          secondsLeft--;
-          if (countdownTxt) countdownTxt.setText(`Waiting ${secondsLeft}s for reconnect...`);
-          if (secondsLeft <= 0) {
-            // we'll actually let the server MatchOver handle the real win, but exit as fallback
-            this.events.emit('exit-match');
-          }
+          secondsLeft = Math.max(0, secondsLeft - 1);
+          countdownText.setText(label());
         },
       });
     }
+
+    this.overlay = this.add.container(width / 2, height / 2, children);
+    this.overlay.setDepth(100);
   }
 
-  private hideDisconnectOverlay() {
-    if (this.disconnectTimerEvent) {
-      this.disconnectTimerEvent.destroy();
-      this.disconnectTimerEvent = null;
-    }
-    this.disconnectOverlay?.destroy();
-    this.disconnectOverlay = null;
+  private hideOverlay() {
+    this.overlayTimer?.destroy();
+    this.overlayTimer = null;
+    this.overlay?.destroy();
+    this.overlay = null;
   }
 
-  // ─── Arena drawing (same as PongScene) ────────────────────────────────────
-
-  private configureWorld(width: number, height: number) {
-    const pad = PONG_CONFIG.arenaPadding;
-    this.physics.world.setBounds(pad, 0, width - pad * 2, height);
-    this.physics.world.setBoundsCollision(true, true, false, false);
-  }
-
-  private drawArenaBackdrop(width: number, height: number) {
-    this.cameras.main.setBackgroundColor(PONG_CONFIG.colors.background);
-    if (!this.arenaGraphics) this.arenaGraphics = this.add.graphics();
-    if (!this.vignetteGraphics) this.vignetteGraphics = this.add.graphics();
-    this.arenaGraphics.clear();
-    this.arenaGraphics.fillGradientStyle(
-      Phaser.Display.Color.HexStringToColor(PONG_CONFIG.colors.arenaTop).color,
-      Phaser.Display.Color.HexStringToColor(PONG_CONFIG.colors.arenaTop).color,
-      Phaser.Display.Color.HexStringToColor(PONG_CONFIG.colors.arenaMid).color,
-      Phaser.Display.Color.HexStringToColor(PONG_CONFIG.colors.arenaBottom).color,
-      1,
-    );
-    this.arenaGraphics.fillRoundedRect(0, 0, width, height, 36);
-    this.vignetteGraphics.clear();
-    this.vignetteGraphics.fillStyle(0xffffff, 0.08);
-    this.vignetteGraphics.fillRoundedRect(12, 12, width - 24, height - 24, 28);
-    this.drawArenaFrame(width, height);
-    this.drawBackgroundDecoration(width, height);
-  }
-
-  private drawArenaFrame(width: number, height: number) {
-    if (!this.frameGraphics) this.frameGraphics = this.add.graphics();
-    const frame = this.frameGraphics;
-    frame.clear();
-    const fp = PONG_CONFIG.arenaPadding;
-    frame.lineStyle(2, PONG_CONFIG.colors.frame, 0.8);
-    frame.strokeRoundedRect(fp, fp, width - fp * 2, height - fp * 2, 28);
-    frame.lineStyle(1, PONG_CONFIG.colors.cyan, 0.18);
-    frame.strokeRoundedRect(fp + 10, fp + 10, width - (fp + 10) * 2, height - (fp + 10) * 2, 22);
-  }
-
-  private drawBackgroundDecoration(width: number, height: number) {
-    if (!this.sparkleGraphics) this.sparkleGraphics = this.add.graphics();
-    if (!this.cloudGraphics) this.cloudGraphics = this.add.graphics();
-    const sparkleLayer = this.sparkleGraphics;
-    const cloudLayer = this.cloudGraphics;
-    sparkleLayer.clear();
-    sparkleLayer.fillStyle(0xffffff, 1);
-    const sparkleCount = Math.max(16, Math.floor((width * height) / 180000));
-    for (let i = 0; i < sparkleCount; i++) {
-      const x = Phaser.Math.Between(40, width - 40);
-      const y = Phaser.Math.Between(56, height - 56);
-      sparkleLayer.fillCircle(x, y, Phaser.Math.Between(1, 3));
-    }
-    sparkleLayer.setAlpha(0.12);
-    cloudLayer.clear();
-    cloudLayer.fillStyle(0xffffff, 0.08);
-    const cy = height * 0.18;
-    cloudLayer.fillEllipse(width * 0.18, cy, 160, 42);
-    cloudLayer.fillEllipse(width * 0.27, cy + 16, 220, 52);
-    cloudLayer.fillEllipse(width * 0.76, cy + 6, 180, 44);
-    cloudLayer.fillEllipse(width * 0.68, cy + 22, 240, 56);
-    if (!this.petalGraphics) this.petalGraphics = this.add.graphics();
-    const petals = this.petalGraphics;
-    petals.clear();
-    petals.fillStyle(0xffb7e1, 0.11);
-    petals.fillEllipse(width * 0.1, height * 0.78, 18, 8);
-    petals.fillEllipse(width * 0.82, height * 0.22, 20, 9);
-    petals.fillEllipse(width * 0.42, height * 0.14, 16, 7);
-    petals.fillEllipse(width * 0.58, height * 0.85, 18, 8);
-  }
-
-  private handleResize(gameSize: Phaser.Structs.Size) {
-    this.configureWorld(gameSize.width, gameSize.height);
-    this.drawArenaBackdrop(gameSize.width, gameSize.height);
-    this.hud.resize(gameSize.width, gameSize.height);
-    this.localPaddleX = gameSize.width / 2;
-    if (this.disconnectOverlay) {
-      this.disconnectOverlay.setPosition(gameSize.width / 2, gameSize.height / 2);
-    }
+  /** Detach from everything that lives longer than this scene. Safe to call twice. */
+  private releaseExternal() {
+    audioManager.stopBGM();
+    this.unsubscribers.forEach((off) => off());
+    this.unsubscribers = [];
   }
 
   private shutdown() {
-    this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
-    audioManager.stopBGM();
+    this.releaseExternal();
     this.events.off('rematch');
     this.events.off('exit-match');
-    this.socketService?.offAll();
+    this.hideOverlay();
     this.effects.destroy();
     this.hud.destroy();
-    this.arenaGraphics?.destroy();
-    this.vignetteGraphics?.destroy();
-    this.frameGraphics?.destroy();
-    this.sparkleGraphics?.destroy();
-    this.cloudGraphics?.destroy();
-    this.petalGraphics?.destroy();
-    this.disconnectOverlay?.destroy();
+    this.backdrop.destroy();
   }
 }

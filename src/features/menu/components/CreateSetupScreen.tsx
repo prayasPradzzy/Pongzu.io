@@ -1,28 +1,22 @@
 import { useFaceUploadStore } from '../../faceUpload/faceUploadStore';
 import { OptionalFaceUpload } from '../../faceUpload/components/OptionalFaceUpload';
-import { socketService } from '../../multiplayer/SocketService';
 
 export function CreateSetupScreen() {
   const {
     playerName,
-    croppedAvatarUrl,
     setPlayerName,
     setGameMode,
+    setMultiplayerRole,
+    setRoomCode,
     setUiStage,
   } = useFaceUploadStore();
 
   const handleCreate = () => {
+    if (!playerName.trim()) return;
+    // The lobby connects and creates the room once its listeners are in place.
     setGameMode('online');
-    socketService.connect();
-
-    // Give socket a tick to connect, then create room
-    setTimeout(() => {
-      socketService.createRoom({
-        playerName: playerName || 'Player',
-        avatarDataUrl: croppedAvatarUrl,
-      });
-    }, 80);
-
+    setMultiplayerRole('host');
+    setRoomCode(null);
     setUiStage('lobby');
   };
 
@@ -44,6 +38,7 @@ export function CreateSetupScreen() {
             maxLength={20}
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
             autoFocus
           />
         </div>

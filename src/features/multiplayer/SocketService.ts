@@ -1,12 +1,11 @@
 import { io, type Socket } from 'socket.io-client';
+import { SERVER_URL } from '../../config/env';
 import {
   CLIENT_EVENTS,
   SERVER_EVENTS,
   type RoomCreatePayload,
   type RoomJoinPayload,
   type InputUpdatePayload,
-  type MatchRejoinPayload,
-  type PingPayload,
   type RoomCreatedPayload,
   type RoomJoinedPayload,
   type RoomOpponentJoinedPayload,
@@ -20,68 +19,119 @@ import {
   type MatchOverPayload,
   type MatchRematchVotePayload,
   type MatchRematchStartPayload,
+  type MatchRejoinedPayload,
   type PlayerDisconnectedPayload,
   type MatchStateChangePayload,
+  type RoomClosedPayload,
   type PongPayload,
 } from '../../protocol/events';
 
-export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
+/**
+ * idle         – not connected and not trying
+ * connecting   – first connection in progress (may take a while if the server is waking up)
+ * connected    – live
+ * reconnecting – was connected, lost it, retrying
+ * failed       – gave up
+ */
+export type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed';
+
+type Unsubscribe = () => void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Listener = (payload: any) => void;
+
+const PING_INTERVAL_MS = 2000;
 
 export class SocketService {
   private socket: Socket | null = null;
   private _status: ConnectionStatus = 'idle';
   private statusListeners: Array<(s: ConnectionStatus) => void> = [];
-  /** Estimated offset between client clock and server clock (ms) */
-  serverTimeOffset = 0;
-  ping = 0;
-  
+  private subscriptions: Array<{ event: string; listener: Listener }> = [];
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private hasConnectedOnce = false;
   private reconnectToken: string | null = null;
+
+  /** Smoothed round-trip time in ms. */
+  ping = 0;
 
   get status(): ConnectionStatus {
     return this._status;
   }
 
-  connect(serverUrl: string = 'http://localhost:3001') {
-    if (this.socket?.connected) return;
+  connect() {
+    if (this.socket) {
+      if (!this.socket.connected) this.socket.connect();
+      return;
+    }
 
-    this._setStatus('connecting');
+    this.hasConnectedOnce = false;
+    this.setStatus('connecting');
 
-    this.socket = io(serverUrl, {
+    const socket = io(SERVER_URL, {
       transports: ['websocket'],
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+      // Generous enough to ride out a free-tier server cold start (~30–60s).
+      reconnectionAttempts: 15,
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 4000,
+      timeout: 20000,
     });
+    this.socket = socket;
 
-    this.socket.on('connect', () => {
-      this._setStatus('connected');
-      this.syncClock();
-      
-      // Auto-rejoin if we have a token
+    socket.on('connect', () => {
+      this.hasConnectedOnce = true;
+      this.setStatus('connected');
+      this.startPingLoop();
+
+      // Mid-room reconnect: reclaim our seat.
       if (this.reconnectToken) {
-        this.sendRejoin({ token: this.reconnectToken });
+        socket.emit(CLIENT_EVENTS.MATCH_REJOIN, { token: this.reconnectToken });
       }
     });
 
-    this.socket.on('disconnect', () => {
-      this._setStatus('idle');
+    socket.on('disconnect', (reason) => {
+      this.stopPingLoop();
+      if (reason === 'io client disconnect') return; // we asked for it
+      this.setStatus('reconnecting');
+      // The server kicking us doesn't trigger auto-reconnect; do it ourselves.
+      if (reason === 'io server disconnect') socket.connect();
     });
 
-    this.socket.on('connect_error', () => {
-      this._setStatus('error');
+    socket.on('connect_error', () => {
+      this.setStatus(this.hasConnectedOnce ? 'reconnecting' : 'connecting');
     });
 
-    this.socket.on(SERVER_EVENTS.PONG, (payload: PongPayload) => {
-      const t3 = Date.now();
-      this.ping = t3 - payload.clientTime;
-      this.serverTimeOffset = (payload.clientTime + t3) / 2 - payload.serverTime;
+    socket.io.on('reconnect_failed', () => {
+      this.setStatus('failed');
+    });
+
+    socket.on(SERVER_EVENTS.PONG, (payload: PongPayload) => {
+      const rtt = Date.now() - payload.clientTime;
+      if (rtt < 0 || rtt > 10_000) return;
+      this.ping = this.ping === 0 ? rtt : this.ping * 0.7 + rtt * 0.3;
+    });
+
+    const rememberToken = (payload: { reconnectToken: string }) => {
+      this.reconnectToken = payload.reconnectToken;
+    };
+    socket.on(SERVER_EVENTS.ROOM_CREATED, rememberToken);
+    socket.on(SERVER_EVENTS.ROOM_JOINED, rememberToken);
+    socket.on(SERVER_EVENTS.ROOM_CLOSED, () => {
+      this.reconnectToken = null;
     });
   }
 
+  /** Leave for good: drops the room seat and every listener. */
   disconnect() {
-    this.socket?.disconnect();
-    this.socket = null;
+    this.stopPingLoop();
+    this.subscriptions = [];
     this.reconnectToken = null;
-    this._setStatus('idle');
+    this.ping = 0;
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.io.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
+    }
+    this.setStatus('idle');
   }
 
   // ─── Emit helpers ─────────────────────────────────────────────────────────
@@ -99,7 +149,8 @@ export class SocketService {
   }
 
   sendInput(payload: InputUpdatePayload) {
-    this.socket?.emit(CLIENT_EVENTS.INPUT_UPDATE, payload);
+    // Inputs are only meaningful right now — never queue them while offline.
+    if (this.socket?.connected) this.socket.emit(CLIENT_EVENTS.INPUT_UPDATE, payload);
   }
 
   sendRematch() {
@@ -107,65 +158,77 @@ export class SocketService {
   }
 
   sendExit() {
-    this.socket?.emit(CLIENT_EVENTS.MATCH_EXIT);
+    if (this.socket?.connected) this.socket.emit(CLIENT_EVENTS.MATCH_EXIT);
   }
 
-  sendRejoin(payload: MatchRejoinPayload) {
-    this.socket?.emit(CLIENT_EVENTS.MATCH_REJOIN, payload);
-  }
+  // ─── Listener helpers (each returns an unsubscribe function) ──────────────
 
-  // ─── Listener helpers ─────────────────────────────────────────────────────
+  onRoomCreated(cb: (p: RoomCreatedPayload) => void) { return this.subscribe(SERVER_EVENTS.ROOM_CREATED, cb); }
+  onRoomJoined(cb: (p: RoomJoinedPayload) => void) { return this.subscribe(SERVER_EVENTS.ROOM_JOINED, cb); }
+  onRoomOpponentJoined(cb: (p: RoomOpponentJoinedPayload) => void) { return this.subscribe(SERVER_EVENTS.ROOM_OPPONENT_JOINED, cb); }
+  onRoomOpponentLeft(cb: () => void) { return this.subscribe(SERVER_EVENTS.ROOM_OPPONENT_LEFT, cb); }
+  onRoomError(cb: (p: RoomErrorPayload) => void) { return this.subscribe(SERVER_EVENTS.ROOM_ERROR, cb); }
+  onRoomClosed(cb: (p: RoomClosedPayload) => void) { return this.subscribe(SERVER_EVENTS.ROOM_CLOSED, cb); }
+  onLobbyOpponentReady(cb: () => void) { return this.subscribe(SERVER_EVENTS.LOBBY_OPPONENT_READY, cb); }
+  onMatchStart(cb: (p: MatchStartPayload) => void) { return this.subscribe(SERVER_EVENTS.MATCH_START, cb); }
+  onGameStateSnapshot(cb: (p: StateSnapshot) => void) { return this.subscribe(SERVER_EVENTS.GAME_STATE_SNAPSHOT, cb); }
+  onGameScore(cb: (p: GameScorePayload) => void) { return this.subscribe(SERVER_EVENTS.GAME_SCORE, cb); }
+  onGameRoundStart(cb: (p: GameRoundStartPayload) => void) { return this.subscribe(SERVER_EVENTS.GAME_ROUND_START, cb); }
+  onGameRoundEnd(cb: (p: GameRoundEndPayload) => void) { return this.subscribe(SERVER_EVENTS.GAME_ROUND_END, cb); }
+  onGameCountdown(cb: (p: GameCountdownPayload) => void) { return this.subscribe(SERVER_EVENTS.GAME_COUNTDOWN, cb); }
+  onMatchOver(cb: (p: MatchOverPayload) => void) { return this.subscribe(SERVER_EVENTS.MATCH_OVER, cb); }
+  onMatchRematchVote(cb: (p: MatchRematchVotePayload) => void) { return this.subscribe(SERVER_EVENTS.MATCH_REMATCH_VOTE, cb); }
+  onMatchRematchStart(cb: (p: MatchRematchStartPayload) => void) { return this.subscribe(SERVER_EVENTS.MATCH_REMATCH_START, cb); }
+  onMatchRejoined(cb: (p: MatchRejoinedPayload) => void) { return this.subscribe(SERVER_EVENTS.MATCH_REJOINED, cb); }
+  onPlayerDisconnected(cb: (p: PlayerDisconnectedPayload) => void) { return this.subscribe(SERVER_EVENTS.PLAYER_DISCONNECTED, cb); }
+  onPlayerReconnected(cb: () => void) { return this.subscribe(SERVER_EVENTS.PLAYER_RECONNECTED, cb); }
+  onMatchStateChange(cb: (p: MatchStateChangePayload) => void) { return this.subscribe(SERVER_EVENTS.MATCH_STATE_CHANGE, cb); }
 
-  onRoomCreated(cb: (p: RoomCreatedPayload) => void) { 
-    this.socket?.on(SERVER_EVENTS.ROOM_CREATED, (p: RoomCreatedPayload) => {
-      this.reconnectToken = p.reconnectToken;
-      cb(p);
-    }); 
-  }
-  onRoomJoined(cb: (p: RoomJoinedPayload) => void) { 
-    this.socket?.on(SERVER_EVENTS.ROOM_JOINED, (p: RoomJoinedPayload) => {
-      this.reconnectToken = p.reconnectToken;
-      cb(p);
-    }); 
-  }
-  onRoomOpponentJoined(cb: (p: RoomOpponentJoinedPayload) => void) { this.socket?.on(SERVER_EVENTS.ROOM_OPPONENT_JOINED, cb); }
-  onRoomError(cb: (p: RoomErrorPayload) => void) { this.socket?.on(SERVER_EVENTS.ROOM_ERROR, cb); }
-  onLobbyOpponentReady(cb: () => void) { this.socket?.on(SERVER_EVENTS.LOBBY_OPPONENT_READY, cb); }
-  onMatchStart(cb: (p: MatchStartPayload) => void) { this.socket?.on(SERVER_EVENTS.MATCH_START, cb); }
-  onGameStateSnapshot(cb: (p: StateSnapshot) => void) { this.socket?.on(SERVER_EVENTS.GAME_STATE_SNAPSHOT, cb); }
-  onGameScore(cb: (p: GameScorePayload) => void) { this.socket?.on(SERVER_EVENTS.GAME_SCORE, cb); }
-  onGameRoundStart(cb: (p: GameRoundStartPayload) => void) { this.socket?.on(SERVER_EVENTS.GAME_ROUND_START, cb); }
-  onGameRoundEnd(cb: (p: GameRoundEndPayload) => void) { this.socket?.on(SERVER_EVENTS.GAME_ROUND_END, cb); }
-  onGameCountdown(cb: (p: GameCountdownPayload) => void) { this.socket?.on(SERVER_EVENTS.GAME_COUNTDOWN, cb); }
-  onMatchOver(cb: (p: MatchOverPayload) => void) { this.socket?.on(SERVER_EVENTS.MATCH_OVER, cb); }
-  onMatchRematchVote(cb: (p: MatchRematchVotePayload) => void) { this.socket?.on(SERVER_EVENTS.MATCH_REMATCH_VOTE, cb); }
-  onMatchRematchStart(cb: (p: MatchRematchStartPayload) => void) { this.socket?.on(SERVER_EVENTS.MATCH_REMATCH_START, cb); }
-  onPlayerDisconnected(cb: (p: PlayerDisconnectedPayload) => void) { this.socket?.on(SERVER_EVENTS.PLAYER_DISCONNECTED, cb); }
-  onPlayerReconnected(cb: () => void) { this.socket?.on(SERVER_EVENTS.PLAYER_RECONNECTED, cb); }
-  onMatchStateChange(cb: (p: MatchStateChangePayload) => void) { this.socket?.on(SERVER_EVENTS.MATCH_STATE_CHANGE, cb); }
-  onRoomClosed(cb: (p: { reason?: string }) => void) { this.socket?.on(SERVER_EVENTS.ROOM_CLOSED, cb); }
-
-  offAll() {
-    if (!this.socket) return;
-    Object.values(SERVER_EVENTS).forEach((ev) => this.socket!.off(ev));
-  }
-
-  onStatusChange(cb: (s: ConnectionStatus) => void) {
+  onStatusChange(cb: (s: ConnectionStatus) => void): Unsubscribe {
     this.statusListeners.push(cb);
     return () => {
       this.statusListeners = this.statusListeners.filter((l) => l !== cb);
     };
   }
 
-  private _setStatus(s: ConnectionStatus) {
-    this._status = s;
-    this.statusListeners.forEach((l) => l(s));
+  // ─── Internals ────────────────────────────────────────────────────────────
+
+  private subscribe(event: string, listener: Listener): Unsubscribe {
+    const socket = this.socket;
+    if (!socket) return () => {};
+    const entry = { event, listener };
+    this.subscriptions.push(entry);
+    socket.on(event, listener);
+    return () => {
+      socket.off(event, listener);
+      this.subscriptions = this.subscriptions.filter((s) => s !== entry);
+    };
   }
 
-  private syncClock() {
-    const pingPayload: PingPayload = { clientTime: Date.now() };
-    this.socket?.emit(CLIENT_EVENTS.PING, pingPayload);
+  private setStatus(status: ConnectionStatus) {
+    if (this._status === status) return;
+    this._status = status;
+    this.statusListeners.forEach((l) => l(status));
   }
+
+  private startPingLoop() {
+    this.stopPingLoop();
+    const send = () => this.socket?.emit(CLIENT_EVENTS.PING, { clientTime: Date.now() });
+    send();
+    this.pingTimer = setInterval(send, PING_INTERVAL_MS);
+  }
+
+  private stopPingLoop() {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+}
+
+/** Fire-and-forget request that wakes a sleeping free-tier server before the player needs it. */
+export function warmUpServer() {
+  fetch(`${SERVER_URL}/healthz`, { mode: 'no-cors' }).catch(() => {});
 }
 
 // Singleton export — both React components and Phaser scenes import this

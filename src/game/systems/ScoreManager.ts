@@ -15,6 +15,7 @@ export class ScoreManager {
   private currentBallSpeed: number = PONG_CONFIG.ball.initialSpeed;
   private roundActive = false;
   private matchOver = false;
+  private countdownRun = 0;
   private readonly scene: Phaser.Scene;
   private readonly hud: GameHud;
   private readonly onServe: ServeCallback;
@@ -89,7 +90,6 @@ export class ScoreManager {
     }
 
     this.roundActive = false;
-    this.scene.physics.world.pause();
 
     if (winner === 'top') {
       this.topScore += 1;
@@ -134,20 +134,22 @@ export class ScoreManager {
         bottomScore: this.bottomScore,
         longestRally: this.longestRally,
       });
-      this.scene.physics.world.pause();
       return;
     }
 
+    const run = this.countdownRun;
     this.scene.time.delayedCall(PONG_CONFIG.pointPauseMs, () => {
-      this.runCountdown(nextServe);
+      if (run === this.countdownRun && !this.matchOver) this.runCountdown(nextServe);
     });
   }
 
   private runCountdown(nextServe: ServeDirection) {
     const countdownText = ['3', '2', '1', 'GO'];
     let index = 0;
+    const run = ++this.countdownRun;
 
     const tick = () => {
+      if (run !== this.countdownRun) return; // superseded by a newer countdown
       if (index < countdownText.length) {
         const value = countdownText[index];
         const isGo = value === 'GO';
@@ -171,7 +173,6 @@ export class ScoreManager {
       this.hud.hidePointMessage();
       this.hud.hideMessage();
       this.roundActive = true;
-      this.scene.physics.world.resume();
       this.onServe(nextServe);
     };
 

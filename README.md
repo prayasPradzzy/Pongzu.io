@@ -76,8 +76,7 @@ Track:
 
 ### Backend
 
-* Node.js
-* Express
+* Node.js (built-in `http` server)
 * Socket.io
 
 ### Computer Vision
@@ -180,6 +179,45 @@ Backend:
 ```text
 http://localhost:3001
 ```
+
+---
+
+## 🌍 Deploying
+
+The frontend is a static site; the multiplayer server is a long-running Node process. They are deployed separately.
+
+### Frontend (Netlify)
+
+`netlify.toml` already sets the build command, publish directory and the SPA fallback that makes invite links (`/join/ABCD`) work.
+
+Set one environment variable in Netlify, then redeploy:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_API_URL` | Origin of your server, e.g. `https://your-server.onrender.com` (no trailing slash) |
+
+### Server (Render, Railway, Fly, …)
+
+| Setting | Value |
+| --- | --- |
+| Root directory | `server` |
+| Build command | `npm install && npm run build` |
+| Start command | `npm start` |
+| `CLIENT_ORIGIN` | Comma-separated list of sites allowed to connect, e.g. `https://pongzu.netlify.app` |
+
+`PORT` is provided by the host. `GET /healthz` returns `{ ok: true }` for uptime checks.
+
+Free-tier hosts put the server to sleep when idle, so the first connection of the day can take up to a minute. The game shows a "server is waking up" message while that happens.
+
+> Client and server share gameplay constants (`src/game/config/pongConfig.ts` and `server/src/game/ServerBallSimulator.ts`) and the socket protocol (`src/protocol/events.ts` and `server/src/protocol/events.ts`). Change both copies together and deploy both sides.
+
+---
+
+## 🎮 Controls
+
+* **Keyboard:** `A` / `D` or `←` / `→`
+* **Touch / mouse:** press and hold — the paddle glides to your finger
+* Moving your paddle as you hit the ball adds spin and sharpens the angle
 
 ---
 

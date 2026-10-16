@@ -14,6 +14,7 @@ type FaceUploadAction =
   | { type: 'clear-image' }
   | { type: 'begin-match' }
   | { type: 'reset-to-menu' }
+  | { type: 'leave-room'; stage: UiStage }
   | { type: 'set-detection'; detection: FaceDetectionResult | null }
   | { type: 'set-cropped-avatar-url'; url: string | null }
   | { type: 'set-face-ball-mode'; enabled: boolean }
@@ -24,19 +25,43 @@ type FaceUploadAction =
   | { type: 'set-game-mode'; mode: 'cpu' | 'online' }
   | { type: 'set-multiplayer-role'; role: 'host' | 'guest' | null }
   | { type: 'set-room-code'; code: string | null }
-  | { type: 'set-opponent'; name: string; avatarUrl: string | null }
+  | { type: 'set-opponent'; name: string | null; avatarUrl: string | null }
   | { type: 'set-connection-status'; status: FaceUploadState['connectionStatus'] }
   | { type: 'set-disconnect-reason'; reason: string | null }
   | { type: 'set-player-name'; name: string };
 
 type FaceUploadContextValue = FaceUploadState & FaceUploadActions;
 
+const NAME_STORAGE_KEY = 'pongzu-name';
+const FACE_STORAGE_KEY = 'pongzu-face';
+
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null; // storage blocked (private mode etc.)
+  }
+}
+
+function writeStored(key: string, value: string | null) {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // storage blocked or full — the game still works, it just won't remember
+  }
+}
+
+// Name and face are remembered between visits so returning players can jump straight in.
+const storedFace = readStored(FACE_STORAGE_KEY);
+const rememberedFace = storedFace && storedFace.startsWith('data:image/') ? storedFace : null;
+
 const initialState: FaceUploadState = {
   image: null,
   detection: null,
   uiStage: 'mainMenu',
-  croppedAvatarUrl: null,
-  faceBallMode: false,
+  croppedAvatarUrl: rememberedFace,
+  faceBallMode: rememberedFace !== null,
   showCropEditor: false,
   difficulty: 'medium',
   // Multiplayer
@@ -47,7 +72,7 @@ const initialState: FaceUploadState = {
   opponentAvatarUrl: null,
   connectionStatus: 'idle',
   disconnectReason: null,
-  playerName: '',
+  playerName: (readStored(NAME_STORAGE_KEY) ?? '').slice(0, 20),
 };
 
 const FaceUploadContext = createContext<FaceUploadContextValue | undefined>(undefined);
@@ -76,12 +101,14 @@ function reducer(state: FaceUploadState, action: FaceUploadAction): FaceUploadSt
         uiStage: 'playing',
       };
     case 'reset-to-menu':
+    case 'leave-room':
+      // The chosen face and name deliberately survive, so a rematch or a new
+      // room doesn't mean uploading and cropping again.
       return {
         ...state,
-        uiStage: 'mainMenu',
+        uiStage: action.type === 'leave-room' ? action.stage : 'mainMenu',
         image: null,
         detection: null,
-        croppedAvatarUrl: null,
         showCropEditor: false,
         gameMode: null,
         multiplayerRole: null,
@@ -139,6 +166,7 @@ export function FaceUploadProvider({ children }: { children: ReactNode }) {
       clearImage: () => dispatch({ type: 'clear-image' }),
       beginMatch: () => dispatch({ type: 'begin-match' }),
       resetToMenu: () => dispatch({ type: 'reset-to-menu' }),
+      leaveRoom: (stage) => dispatch({ type: 'leave-room', stage }),
       setDetection: (detection) => dispatch({ type: 'set-detection', detection }),
       setCroppedAvatarUrl: (url) => dispatch({ type: 'set-cropped-avatar-url', url }),
       setFaceBallMode: (enabled) => dispatch({ type: 'set-face-ball-mode', enabled }),
@@ -164,6 +192,14 @@ export function FaceUploadProvider({ children }: { children: ReactNode }) {
       }
     };
   }, [state.image]);
+
+  useEffect(() => {
+    writeStored(NAME_STORAGE_KEY, state.playerName.trim() || null);
+  }, [state.playerName]);
+
+  useEffect(() => {
+    writeStored(FACE_STORAGE_KEY, state.croppedAvatarUrl);
+  }, [state.croppedAvatarUrl]);
 
   return <FaceUploadContext.Provider value={value}>{children}</FaceUploadContext.Provider>;
 }

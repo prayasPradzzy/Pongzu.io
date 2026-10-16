@@ -6,23 +6,34 @@ import {
   type MatchState,
   type ServeDirection,
   type StateSnapshot,
+  type PaddleSide,
 } from '../protocol/events.js';
-import { ServerBallSimulator, SERVER_PONG_CONFIG } from '../game/ServerBallSimulator.js';
+import { ServerBallSimulator, SERVER_PONG_CONFIG, round1 } from '../game/ServerBallSimulator.js';
 import { ServerScoreManager } from '../game/ServerScoreManager.js';
 
-// Fixed arena dimensions — matches the CSS game-shell max size
+// Fixed arena dimensions — matches the client's Phaser game size
 const ARENA_WIDTH = 800;
 const ARENA_HEIGHT = 600;
 const TICK_RATE_HZ = 60;
 const TICK_MS = 1000 / TICK_RATE_HZ;
+// Physics advances in small fixed slices so a late timer can never make the
+// ball skip through a paddle.
+const SUBSTEP_MS = 4;
+const MAX_TICK_DELTA_MS = 100;
 
-const REMATCH_TIMEOUT_MS = 30_000;
+const REMATCH_TIMEOUT_MS = 60_000;
+export const RECONNECT_GRACE_MS = 20_000;
 
 export type PlayerSlot = {
   socketId: string;
   role: Role;
+  connected: boolean;
   paddleX: number;
   inputDirection: -1 | 0 | 1;
+  /** Touch target; overrides inputDirection while set. */
+  targetX: number | null;
+  /** Direction the paddle actually moved last step — used for spin. */
+  moveDirection: number;
   lastInputSeq: number;
   playerName: string;
   avatarDataUrl: string | null;
@@ -35,10 +46,22 @@ export type RoomState =
   | 'waiting'       // only host in room
   | 'ready_check'   // both players present, waiting for both to click Ready
   | 'countdown'     // counting down before round start
-  | 'active'        // tick loop running
+  | 'active'        // ball in play
   | 'round_paused'  // point scored, brief pause
   | 'match_over'    // match finished
-  | 'disconnected'; // one player disconnected, grace window open
+  | 'disconnected'; // a player dropped mid-match, grace window open
+
+const MATCH_STATE: Record<RoomState, MatchState> = {
+  waiting: 'lobby',
+  ready_check: 'ready',
+  countdown: 'countdown',
+  active: 'playing',
+  round_paused: 'point_scored',
+  match_over: 'match_over',
+  disconnected: 'point_scored', // frozen; client shows its own overlay
+};
+
+export type RejoinResult = { ok: false } | { ok: true; replacedSocketId: string | null };
 
 export class Room {
   readonly code: string;
@@ -49,11 +72,13 @@ export class Room {
   private ball: ServerBallSimulator;
   private scoreManager: ServerScoreManager;
   private tickInterval: ReturnType<typeof setInterval> | null = null;
-  private pendingTimers: ReturnType<typeof setTimeout>[] = [];
+  private pendingTimers = new Set<ReturnType<typeof setTimeout>>();
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private rematchTimer: ReturnType<typeof setTimeout> | null = null;
   private tickSeq = 0;
   private lastTickTime = 0;
+  private nextServe: ServeDirection = 'down';
+  private destroyed = false;
   private readonly io: Server;
   private onDestroy: (code: string) => void;
 
@@ -68,36 +93,18 @@ export class Room {
   // ─── Player management ───────────────────────────────────────────────────
 
   addHost(socket: Socket, playerName: string, avatarDataUrl: string | null) {
-    this.host = {
-      socketId: socket.id,
-      role: 'host',
-      paddleX: ARENA_WIDTH / 2,
-      inputDirection: 0,
-      lastInputSeq: 0,
-      playerName,
-      avatarDataUrl,
-      ready: false,
-      rematchVote: false,
-      reconnectToken: randomUUID(),
-    };
+    this.host = this.createSlot(socket, 'host', playerName, avatarDataUrl);
     socket.join(this.code);
   }
 
   addGuest(socket: Socket, playerName: string, avatarDataUrl: string | null) {
-    this.guest = {
-      socketId: socket.id,
-      role: 'guest',
-      paddleX: ARENA_WIDTH / 2,
-      inputDirection: 0,
-      lastInputSeq: 0,
-      playerName,
-      avatarDataUrl,
-      ready: false,
-      rematchVote: false,
-      reconnectToken: randomUUID(),
-    };
+    this.guest = this.createSlot(socket, 'guest', playerName, avatarDataUrl);
     socket.join(this.code);
     this.state = 'ready_check';
+  }
+
+  isJoinable(): boolean {
+    return this.state === 'waiting' && this.host !== null && this.guest === null;
   }
 
   setReady(socketId: string) {
@@ -105,8 +112,7 @@ export class Room {
     if (!player || this.state !== 'ready_check') return;
     player.ready = true;
 
-    // Notify opponent
-    const opponent = player.role === 'host' ? this.guest : this.host;
+    const opponent = this.getOpponent(player);
     if (opponent) {
       this.io.to(opponent.socketId).emit(SERVER_EVENTS.LOBBY_OPPONENT_READY);
     }
@@ -116,110 +122,105 @@ export class Room {
     }
   }
 
-  handleInput(socketId: string, direction: -1 | 0 | 1, seq: number) {
-    // Only accept input during active gameplay
-    if (this.state !== 'active') return;
+  handleInput(socketId: string, direction: -1 | 0 | 1, targetX: number | null, seq: number) {
+    // Paddles stay movable between points so players can set up for the serve.
+    if (!this.isSimulating()) return;
     const player = this.getPlayerBySocket(socketId);
     if (!player) return;
     player.inputDirection = direction;
+    player.targetX = targetX;
     player.lastInputSeq = seq;
   }
 
+  /** The socket dropped without saying goodbye (network loss, closed tab). */
   handleDisconnect(socketId: string) {
     const player = this.getPlayerBySocket(socketId);
     if (!player) return;
+    const opponent = this.getOpponent(player);
 
-    const opponent = player.role === 'host' ? this.guest : this.host;
-
-    // If lobby stages — simple cleanup
     if (this.state === 'waiting' || this.state === 'ready_check') {
-      if (opponent) {
-        this.io.to(opponent.socketId).emit(SERVER_EVENTS.ROOM_ERROR, { message: 'Opponent left the lobby.' });
-      }
+      this.removeFromLobby(player);
+      return;
+    }
+
+    if (this.state === 'match_over') {
+      this.closeRoom(opponent, 'Your opponent left.');
+      return;
+    }
+
+    if (this.state === 'disconnected') {
+      // The other player is already gone too — nobody left to wait for.
       this.destroy();
       return;
     }
 
-    // Mid-game: handle depending on role
-    if (this.state === 'active' || this.state === 'round_paused' || this.state === 'countdown') {
-      this.stopTick();
-      
-      if (player.role === 'host') {
-        // Host disconnects -> room closed immediately
-        if (opponent) {
-          this.io.to(opponent.socketId).emit(SERVER_EVENTS.ROOM_CLOSED, { reason: 'Host disconnected' });
-        }
-        this.destroy();
-        return;
-      }
+    // Mid-match: freeze everything and give the player a chance to come back.
+    this.stopTick();
+    this.clearPendingTimers();
+    this.resetInputDirections();
+    this.state = 'disconnected';
+    player.connected = false;
 
-      // Guest disconnects -> open grace window
-      this.state = 'disconnected';
-      if (opponent) {
-        this.io.to(opponent.socketId).emit(SERVER_EVENTS.PLAYER_DISCONNECTED, {
-          role: player.role,
-          reason: 'transport close',
-        });
-      }
-
-      this.disconnectTimer = setTimeout(() => {
-        // Grace expired — opponent wins
-        if (opponent) {
-          const winnerRole: Role = opponent.role;
-          this.io.to(opponent.socketId).emit(SERVER_EVENTS.MATCH_OVER, {
-            winner: winnerRole,
-            reason: 'opponent_disconnected',
-            stats: this.scoreManager.getStats(),
-          });
-        }
-        this.destroy();
-      }, 15_000); // 15s grace
-      this.pendingTimers.push(this.disconnectTimer);
+    if (opponent) {
+      this.io.to(opponent.socketId).emit(SERVER_EVENTS.PLAYER_DISCONNECTED, {
+        role: player.role,
+        reason: 'connection lost',
+        graceMs: RECONNECT_GRACE_MS,
+      });
     }
 
-    // Match over stage — just destroy
-    if (this.state === 'match_over') {
-      this.destroy();
-    }
+    this.disconnectTimer = setTimeout(() => {
+      this.disconnectTimer = null;
+      this.forfeit(player);
+    }, RECONNECT_GRACE_MS);
   }
 
-  handleRejoin(socket: Socket, token: string) {
+  /** A client presents its reconnect token on a fresh socket. */
+  handleRejoin(socket: Socket, token: string): RejoinResult {
     const player = this.getPlayerByToken(token);
-    if (!player || this.state !== 'disconnected') return;
+    if (!player || this.destroyed) return { ok: false };
+    if (player.socketId === socket.id) return { ok: true, replacedSocketId: null };
 
-    // Clear grace timer
-    if (this.disconnectTimer) {
-      clearTimeout(this.disconnectTimer);
-      this.disconnectTimer = null;
-    }
-
+    const previousSocketId = player.socketId;
+    const wasConnected = player.connected;
     player.socketId = socket.id;
+    player.connected = true;
+    player.inputDirection = 0;
+    player.targetX = null;
     socket.join(this.code);
 
-    // Send current state to rejoining player
-    socket.emit(SERVER_EVENTS.GAME_SCORE, {
-      top: this.scoreManager.getTopScore(),
-      bottom: this.scoreManager.getBottomScore(),
+    socket.emit(SERVER_EVENTS.MATCH_REJOINED, {
+      topScore: this.scoreManager.getTopScore(),
+      bottomScore: this.scoreManager.getBottomScore(),
     });
 
-    // Notify opponent
-    const opponent = player.role === 'host' ? this.guest : this.host;
-    if (opponent) {
-      this.io.to(opponent.socketId).emit(SERVER_EVENTS.PLAYER_RECONNECTED);
+    if (!wasConnected && this.state === 'disconnected') {
+      if (this.disconnectTimer) {
+        clearTimeout(this.disconnectTimer);
+        this.disconnectTimer = null;
+      }
+      const opponent = this.getOpponent(player);
+      if (opponent) {
+        this.io.to(opponent.socketId).emit(SERVER_EVENTS.PLAYER_RECONNECTED);
+      }
+      // Replay the interrupted rally from a fresh serve.
+      this.ball.reset();
+      this.startTick();
+      this.runCountdownThenServe(this.nextServe);
+      return { ok: true, replacedSocketId: null };
     }
 
-    // Resume through countdown instead of jumping straight to active
-    this.resetInputDirections();
-    const serveDir: ServeDirection = Math.random() < 0.5 ? 'down' : 'up';
-    this.runCountdownThenServe(serveDir);
+    // The client reconnected before the server noticed the old socket die:
+    // just swap sockets and carry on.
+    return { ok: true, replacedSocketId: previousSocketId };
   }
 
   handleRematch(socketId: string) {
     const player = this.getPlayerBySocket(socketId);
-    if (!player || this.state !== 'match_over') return;
+    if (!player || this.state !== 'match_over' || player.rematchVote) return;
     player.rematchVote = true;
 
-    const opponent = player.role === 'host' ? this.guest : this.host;
+    const opponent = this.getOpponent(player);
     if (opponent) {
       this.io.to(opponent.socketId).emit(SERVER_EVENTS.MATCH_REMATCH_VOTE, { from: player.role });
     }
@@ -230,46 +231,93 @@ export class Room {
         this.rematchTimer = null;
       }
       this.scoreManager.reset();
-      if (this.host) this.host.rematchVote = false;
-      if (this.guest) this.guest.rematchVote = false;
-      const serveDir = Math.random() < 0.5 ? 'down' : 'up';
+      this.host.rematchVote = false;
+      this.guest.rematchVote = false;
+      this.centerPaddles();
+      this.ball.reset();
+      const serveDir: ServeDirection = Math.random() < 0.5 ? 'down' : 'up';
       this.io.to(this.code).emit(SERVER_EVENTS.MATCH_REMATCH_START, { serveDirection: serveDir });
-      this.runCountdownThenServe(serveDir as ServeDirection);
+      this.startTick();
+      this.runCountdownThenServe(serveDir);
     }
   }
 
+  /** The player deliberately left (Leave Room / Return to Menu). */
   handleExit(socketId: string) {
     const player = this.getPlayerBySocket(socketId);
     if (!player) return;
-    const opponent = player.role === 'host' ? this.guest : this.host;
-    if (opponent) {
-      this.io.to(opponent.socketId).emit(SERVER_EVENTS.PLAYER_DISCONNECTED, { role: player.role, reason: 'exit' });
+    const opponent = this.getOpponent(player);
+
+    if (this.state === 'waiting' || this.state === 'ready_check') {
+      this.removeFromLobby(player);
+      return;
+    }
+
+    if (this.state === 'match_over') {
+      this.closeRoom(opponent, 'Your opponent left.');
+      return;
+    }
+
+    this.forfeit(player);
+  }
+
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.state = 'match_over'; // prevent timer callbacks
+    this.stopTick();
+    this.clearPendingTimers();
+    if (this.disconnectTimer) clearTimeout(this.disconnectTimer);
+    if (this.rematchTimer) clearTimeout(this.rematchTimer);
+    this.disconnectTimer = null;
+    this.rematchTimer = null;
+    // Detach sockets so a future room that reuses this code can't reach them.
+    this.io.in(this.code).socketsLeave(this.code);
+    this.onDestroy(this.code);
+  }
+
+  getPlayerByToken(token: string): PlayerSlot | null {
+    if (this.host?.reconnectToken === token) return this.host;
+    if (this.guest?.reconnectToken === token) return this.guest;
+    return null;
+  }
+
+  // ─── Leaving ──────────────────────────────────────────────────────────────
+
+  private removeFromLobby(player: PlayerSlot) {
+    if (player.role === 'host') {
+      this.closeRoom(this.guest, 'The host left the room.');
+      return;
+    }
+
+    // Guest left: the room goes back to waiting so the host can re-share the code.
+    this.io.in(player.socketId).socketsLeave(this.code);
+    this.guest = null;
+    this.state = 'waiting';
+    if (this.host) {
+      this.host.ready = false;
+      this.io.to(this.host.socketId).emit(SERVER_EVENTS.ROOM_OPPONENT_LEFT);
+    }
+  }
+
+  /** Ends a running match in favour of whoever is still here. */
+  private forfeit(leaver: PlayerSlot) {
+    const opponent = this.getOpponent(leaver);
+    if (opponent && opponent.connected) {
+      this.io.to(opponent.socketId).emit(SERVER_EVENTS.MATCH_OVER, {
+        winner: opponent.role,
+        reason: 'opponent_disconnected',
+        stats: this.scoreManager.getStats(),
+      });
     }
     this.destroy();
   }
 
-  isFull(): boolean {
-    return this.host !== null && this.guest !== null;
-  }
-
-  clearAllTimers() {
-    this.pendingTimers.forEach(clearTimeout);
-    this.pendingTimers = [];
-    if (this.disconnectTimer) {
-      clearTimeout(this.disconnectTimer);
-      this.disconnectTimer = null;
+  private closeRoom(remaining: PlayerSlot | null, reason: string) {
+    if (remaining && remaining.connected) {
+      this.io.to(remaining.socketId).emit(SERVER_EVENTS.ROOM_CLOSED, { reason });
     }
-    if (this.rematchTimer) {
-      clearTimeout(this.rematchTimer);
-      this.rematchTimer = null;
-    }
-  }
-
-  destroy() {
-    this.state = 'match_over'; // prevent timer callbacks
-    this.stopTick();
-    this.clearAllTimers();
-    this.onDestroy(this.code);
+    this.destroy();
   }
 
   // ─── Match flow ───────────────────────────────────────────────────────────
@@ -277,32 +325,31 @@ export class Room {
   private startMatch() {
     this.scoreManager.reset();
     this.ball.reset();
-    this.state = 'countdown';
-    this.broadcastMatchState();
+    this.centerPaddles();
 
     const serveDir: ServeDirection = Math.random() < 0.5 ? 'down' : 'up';
 
     this.io.to(this.code).emit(SERVER_EVENTS.MATCH_START, {
       serveDirection: serveDir,
-      hostIsTop: true, // host always top paddle
+      hostIsTop: true, // host always owns the top paddle in server space
     });
 
+    this.startTick();
     this.runCountdownThenServe(serveDir);
   }
 
   private runCountdownThenServe(serveDir: ServeDirection) {
-    this.state = 'countdown';
-    this.broadcastMatchState();
-    this.resetInputDirections();
+    this.nextServe = serveDir;
+    this.setState('countdown');
     const ticks = ['3', '2', '1', 'GO'];
     let idx = 0;
 
     const tick = () => {
-      if (this.state === 'match_over') return;
+      if (this.state !== 'countdown') return;
       if (idx < ticks.length) {
         this.io.to(this.code).emit(SERVER_EVENTS.GAME_COUNTDOWN, { value: ticks[idx] });
         idx++;
-        this.pendingTimers.push(setTimeout(tick, SERVER_PONG_CONFIG.countdownMs));
+        this.later(tick, SERVER_PONG_CONFIG.countdownMs);
       } else {
         this.startRound(serveDir);
       }
@@ -312,9 +359,8 @@ export class Room {
 
   private startRound(serveDir: ServeDirection) {
     this.ball.reset();
-    this.ball.speed = this.scoreManager.getCurrentBallSpeed();
-    const seed = Date.now() % 1000;
-    this.ball.serve(serveDir, seed);
+    this.ball.setSpeed(this.scoreManager.getCurrentBallSpeed());
+    this.ball.serve(serveDir);
 
     this.io.to(this.code).emit(SERVER_EVENTS.GAME_ROUND_START, {
       serveDirection: serveDir,
@@ -322,13 +368,14 @@ export class Room {
       countdown: false,
     });
 
-    this.state = 'active';
-    this.broadcastMatchState();
-    this.lastTickTime = Date.now();
-    this.startTick();
+    this.setState('active');
   }
 
   // ─── Tick loop ────────────────────────────────────────────────────────────
+
+  private isSimulating(): boolean {
+    return this.state === 'countdown' || this.state === 'active' || this.state === 'round_paused';
+  }
 
   private startTick() {
     if (this.tickInterval) return;
@@ -344,49 +391,67 @@ export class Room {
   }
 
   private tick() {
-    if (this.state !== 'active') return;
+    if (!this.isSimulating()) return;
 
     const now = Date.now();
-    const delta = now - this.lastTickTime;
+    let remaining = Math.min(now - this.lastTickTime, MAX_TICK_DELTA_MS);
     this.lastTickTime = now;
 
-    // Apply paddle inputs
-    const paddleSpeed = SERVER_PONG_CONFIG.paddle.speed;
-    const paddleHalfWidth = SERVER_PONG_CONFIG.paddle.width / 2;
-    const leftLimit = SERVER_PONG_CONFIG.arenaPadding + paddleHalfWidth;
-    const rightLimit = ARENA_WIDTH - SERVER_PONG_CONFIG.arenaPadding - paddleHalfWidth;
-
-    if (this.host) {
-      this.host.paddleX += this.host.inputDirection * paddleSpeed * (delta / 1000);
-      this.host.paddleX = Math.max(leftLimit, Math.min(rightLimit, this.host.paddleX));
-    }
-    if (this.guest) {
-      this.guest.paddleX += this.guest.inputDirection * paddleSpeed * (delta / 1000);
-      this.guest.paddleX = Math.max(leftLimit, Math.min(rightLimit, this.guest.paddleX));
+    while (remaining > 0 && this.isSimulating()) {
+      const step = Math.min(remaining, SUBSTEP_MS);
+      this.simulate(step);
+      remaining -= step;
     }
 
-    // Advance ball
-    this.ball.step(delta);
+    if (this.isSimulating()) {
+      this.broadcastSnapshot(now);
+    }
+  }
 
-    // Check paddle collisions
+  private simulate(stepMs: number) {
+    this.movePaddle(this.host, stepMs);
+    this.movePaddle(this.guest, stepMs);
+
+    if (this.state !== 'active') return;
+
+    this.ball.step(stepMs);
     this.checkPaddleCollisions();
 
-    // Check out of bounds
     const scoringSide = this.ball.checkOutOfBounds();
     if (scoringSide) {
       this.handlePoint(scoringSide);
-      return;
     }
+  }
 
-    // Broadcast snapshot
+  private movePaddle(player: PlayerSlot | null, stepMs: number) {
+    if (!player) return;
+    const halfWidth = SERVER_PONG_CONFIG.paddle.width / 2;
+    const leftLimit = SERVER_PONG_CONFIG.arenaPadding + halfWidth;
+    const rightLimit = ARENA_WIDTH - SERVER_PONG_CONFIG.arenaPadding - halfWidth;
+    const maxStep = SERVER_PONG_CONFIG.paddle.speed * (stepMs / 1000);
+
+    // Mirror of advancePaddle() in the client's PongSimulation.
+    const wanted =
+      player.targetX !== null
+        ? Math.max(-maxStep, Math.min(maxStep, player.targetX - player.paddleX))
+        : player.inputDirection * maxStep;
+    const next = Math.max(leftLimit, Math.min(rightLimit, player.paddleX + wanted));
+    const moved = next - player.paddleX;
+    player.moveDirection = Math.abs(moved) > 0.01 ? Math.sign(moved) : 0;
+    player.paddleX = next;
+  }
+
+  private broadcastSnapshot(now: number) {
     this.tickSeq++;
     const snapshot: StateSnapshot = {
       seq: this.tickSeq,
-      ball: this.ball.getState(),
-      hostPaddleX: this.host?.paddleX ?? ARENA_WIDTH / 2,
-      guestPaddleX: this.guest?.paddleX ?? ARENA_WIDTH / 2,
-      lastAckedInputSeq: 0, // will be per-player in future; kept simple for now
       timestamp: now,
+      state: MATCH_STATE[this.state],
+      ball: this.ball.getState(),
+      hostPaddleX: round1(this.host?.paddleX ?? ARENA_WIDTH / 2),
+      guestPaddleX: round1(this.guest?.paddleX ?? ARENA_WIDTH / 2),
+      topScore: this.scoreManager.getTopScore(),
+      bottomScore: this.scoreManager.getBottomScore(),
     };
     this.io.to(this.code).emit(SERVER_EVENTS.GAME_STATE_SNAPSHOT, snapshot);
   }
@@ -395,42 +460,42 @@ export class Room {
     const radius = SERVER_PONG_CONFIG.ball.radius;
     const topPaddleY = SERVER_PONG_CONFIG.paddle.topOffset;
     const bottomPaddleY = ARENA_HEIGHT - SERVER_PONG_CONFIG.paddle.bottomOffset;
-    const paddleHalfHeight = SERVER_PONG_CONFIG.paddle.height / 2;
+    const halfHeight = SERVER_PONG_CONFIG.paddle.height / 2;
+    const reach = SERVER_PONG_CONFIG.paddle.width / 2 + radius;
 
-    // Top paddle (host)
+    // Top paddle (host): ball travelling up, leading edge inside the paddle slab
     if (
       this.host &&
       this.ball.vy < 0 &&
-      this.ball.y - radius <= topPaddleY + paddleHalfHeight &&
-      this.ball.y - radius >= topPaddleY - paddleHalfHeight - radius &&
-      Math.abs(this.ball.x - this.host.paddleX) <= SERVER_PONG_CONFIG.paddle.width / 2 + radius
+      this.ball.y - radius <= topPaddleY + halfHeight &&
+      this.ball.y >= topPaddleY - halfHeight &&
+      Math.abs(this.ball.x - this.host.paddleX) <= reach
     ) {
-      this.ball.y = topPaddleY + paddleHalfHeight + radius;
-      const newSpeed = this.scoreManager.registerPaddleHit();
-      this.ball.setSpeed(newSpeed);
-      this.ball.bounceFromPaddle(this.host.paddleX, SERVER_PONG_CONFIG.paddle.width, 'top');
+      this.ball.y = topPaddleY + halfHeight + radius;
+      this.bounce(this.host, 'top');
     }
 
     // Bottom paddle (guest)
     if (
       this.guest &&
       this.ball.vy > 0 &&
-      this.ball.y + radius >= bottomPaddleY - paddleHalfHeight &&
-      this.ball.y + radius <= bottomPaddleY + paddleHalfHeight + radius &&
-      Math.abs(this.ball.x - this.guest.paddleX) <= SERVER_PONG_CONFIG.paddle.width / 2 + radius
+      this.ball.y + radius >= bottomPaddleY - halfHeight &&
+      this.ball.y <= bottomPaddleY + halfHeight &&
+      Math.abs(this.ball.x - this.guest.paddleX) <= reach
     ) {
-      this.ball.y = bottomPaddleY - paddleHalfHeight - radius;
-      const newSpeed = this.scoreManager.registerPaddleHit();
-      this.ball.setSpeed(newSpeed);
-      this.ball.bounceFromPaddle(this.guest.paddleX, SERVER_PONG_CONFIG.paddle.width, 'bottom');
+      this.ball.y = bottomPaddleY - halfHeight - radius;
+      this.bounce(this.guest, 'bottom');
     }
   }
 
-  private handlePoint(scoringSide: 'top' | 'bottom') {
-    this.stopTick();
-    this.state = 'round_paused';
-    this.broadcastMatchState();
-    this.resetInputDirections();
+  private bounce(player: PlayerSlot, side: PaddleSide) {
+    this.ball.setSpeed(this.scoreManager.registerPaddleHit());
+    this.ball.bounceFromPaddle(player.paddleX, SERVER_PONG_CONFIG.paddle.width, side, player.moveDirection);
+  }
+
+  private handlePoint(scoringSide: PaddleSide) {
+    this.ball.reset();
+    this.setState('round_paused');
 
     this.io.to(this.code).emit(SERVER_EVENTS.GAME_ROUND_END, { scoringSide });
 
@@ -441,8 +506,9 @@ export class Room {
     });
 
     if (result.matchOver) {
-      this.state = 'match_over';
-      this.broadcastMatchState();
+      this.stopTick();
+      this.resetInputDirections();
+      this.setState('match_over');
       const winner: Role = result.topScore > result.bottomScore ? 'host' : 'guest';
       this.io.to(this.code).emit(SERVER_EVENTS.MATCH_OVER, {
         winner,
@@ -450,58 +516,82 @@ export class Room {
         stats: this.scoreManager.getStats(),
       });
 
-      // Auto-destroy room after rematch timeout
+      // Nobody asked for a rematch in time — tell whoever is still here and clean up.
       this.rematchTimer = setTimeout(() => {
-        if (this.state !== 'match_over') return;
+        this.rematchTimer = null;
+        if (this.state !== 'match_over' || this.destroyed) return;
+        this.io.to(this.code).emit(SERVER_EVENTS.ROOM_CLOSED, { reason: 'The room timed out.' });
         this.destroy();
       }, REMATCH_TIMEOUT_MS);
-      this.pendingTimers.push(this.rematchTimer);
       return;
     }
 
-    // Pause then start next round
-    const timer = setTimeout(() => {
+    this.later(() => {
       if (this.state !== 'round_paused') return;
       this.runCountdownThenServe(result.nextServe);
     }, SERVER_PONG_CONFIG.pointPauseMs);
-    this.pendingTimers.push(timer);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  // ─── State broadcast helpers ──────────────────────────────────────────────
-
-  private broadcastMatchState() {
-    const stateMap: Record<RoomState, MatchState> = {
-      'waiting': 'lobby',
-      'ready_check': 'ready',
-      'countdown': 'countdown',
-      'active': 'playing',
-      'round_paused': 'point_scored',
-      'match_over': 'match_over',
-      'disconnected': 'playing', // client shows disconnect overlay independently
+  private createSlot(socket: Socket, role: Role, playerName: string, avatarDataUrl: string | null): PlayerSlot {
+    return {
+      socketId: socket.id,
+      role,
+      connected: true,
+      paddleX: ARENA_WIDTH / 2,
+      inputDirection: 0,
+      targetX: null,
+      moveDirection: 0,
+      lastInputSeq: 0,
+      playerName,
+      avatarDataUrl,
+      ready: false,
+      rematchVote: false,
+      reconnectToken: randomUUID(),
     };
-    this.io.to(this.code).emit(SERVER_EVENTS.MATCH_STATE_CHANGE, {
-      state: stateMap[this.state],
-    });
+  }
+
+  private setState(state: RoomState) {
+    this.state = state;
+    this.io.to(this.code).emit(SERVER_EVENTS.MATCH_STATE_CHANGE, { state: MATCH_STATE[state] });
+  }
+
+  /** setTimeout that is tracked so it can be cancelled when the room pauses or dies. */
+  private later(fn: () => void, ms: number) {
+    const timer = setTimeout(() => {
+      this.pendingTimers.delete(timer);
+      fn();
+    }, ms);
+    this.pendingTimers.add(timer);
+  }
+
+  private clearPendingTimers() {
+    this.pendingTimers.forEach(clearTimeout);
+    this.pendingTimers.clear();
+  }
+
+  private centerPaddles() {
+    if (this.host) this.host.paddleX = ARENA_WIDTH / 2;
+    if (this.guest) this.guest.paddleX = ARENA_WIDTH / 2;
+    this.resetInputDirections();
   }
 
   private resetInputDirections() {
-    if (this.host) this.host.inputDirection = 0;
-    if (this.guest) this.guest.inputDirection = 0;
+    for (const player of [this.host, this.guest]) {
+      if (!player) continue;
+      player.inputDirection = 0;
+      player.targetX = null;
+    }
+  }
+
+  private getOpponent(player: PlayerSlot): PlayerSlot | null {
+    return player.role === 'host' ? this.guest : this.host;
   }
 
   private getPlayerBySocket(socketId: string): PlayerSlot | null {
     if (this.host?.socketId === socketId) return this.host;
     if (this.guest?.socketId === socketId) return this.guest;
-    return null;
-  }
-
-
-
-  getPlayerByToken(token: string): PlayerSlot | null {
-    if (this.host?.reconnectToken === token) return this.host;
-    if (this.guest?.reconnectToken === token) return this.guest;
     return null;
   }
 }

@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { useFaceUploadStore } from '../../faceUpload/faceUploadStore';
 import { OptionalFaceUpload } from '../../faceUpload/components/OptionalFaceUpload';
-import { socketService } from '../../multiplayer/SocketService';
 
 export function JoinSetupScreen() {
   const {
     playerName,
-    croppedAvatarUrl,
     setPlayerName,
     setGameMode,
+    setMultiplayerRole,
+    setRoomCode,
     setUiStage,
     roomCode,
   } = useFaceUploadStore();
@@ -26,17 +26,10 @@ export function JoinSetupScreen() {
       return;
     }
     setError(null);
+    // The lobby connects and joins once its listeners are in place.
     setGameMode('online');
-    socketService.connect();
-
-    setTimeout(() => {
-      socketService.joinRoom({
-        code: joinCode.toUpperCase().trim(),
-        playerName: playerName || 'Player',
-        avatarDataUrl: croppedAvatarUrl,
-      });
-    }, 80);
-
+    setMultiplayerRole('guest');
+    setRoomCode(joinCode.toUpperCase().trim());
     setUiStage('lobby');
   };
 
@@ -45,7 +38,7 @@ export function JoinSetupScreen() {
       <div className="face-upload__panel setup-panel">
         <p className="face-upload__eyebrow">Join Room</p>
         <h1 className="face-upload__title setup__title">Join a Game</h1>
-        <p className="face-upload__copy">Enter the room code from your friend, then set up your profile.</p>
+        <p className="face-upload__copy">{roomCode ? `You've been invited to room ${roomCode}. Add your name and jump in.` : 'Enter the room code from your friend, then set up your profile.'}</p>
 
         {/* Room code */}
         <div className="setup__field">
@@ -57,12 +50,15 @@ export function JoinSetupScreen() {
             maxLength={4}
             placeholder="XXXX"
             value={joinCode}
-            disabled={!!roomCode}
+            autoCapitalize="characters"
+            autoComplete="off"
+            spellCheck={false}
             onChange={(e) => {
-              setJoinCode(e.target.value.toUpperCase());
+              setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
               setError(null);
             }}
-            autoFocus
+            onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+            autoFocus={!roomCode}
           />
         </div>
 
@@ -77,6 +73,8 @@ export function JoinSetupScreen() {
             maxLength={20}
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
+            autoFocus={!!roomCode}
           />
         </div>
 
@@ -98,7 +96,10 @@ export function JoinSetupScreen() {
         <button
           type="button"
           className="face-upload__ghost-button setup__back"
-          onClick={() => setUiStage('multiplayerMenu')}
+          onClick={() => {
+            setRoomCode(null);
+            setUiStage('multiplayerMenu');
+          }}
         >
           ← Back
         </button>

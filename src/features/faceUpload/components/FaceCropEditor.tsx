@@ -105,17 +105,26 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
     ctx.shadowBlur = 0;
   }, [imgElement, zoom, offset]);
 
+  // The canvas can be shrunk by CSS on small phones; convert screen pixels
+  // to canvas pixels so the photo tracks the finger 1:1.
+  const dragScale = () => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    return rect && rect.width > 0 ? VIEWPORT_SIZE / rect.width : 1;
+  };
+
   // Drag interaction handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     setIsDragging(true);
-    dragStart.current = { x: e.clientX - offset.x, y: e.clientY - offset.y };
+    const k = dragScale();
+    dragStart.current = { x: e.clientX * k - offset.x, y: e.clientY * k - offset.y };
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDragging) return;
+    const k = dragScale();
     setOffset({
-      x: e.clientX - dragStart.current.x,
-      y: e.clientY - dragStart.current.y,
+      x: e.clientX * k - dragStart.current.x,
+      y: e.clientY * k - dragStart.current.y,
     });
   };
 
@@ -128,15 +137,17 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
     if (e.touches.length !== 1) return;
     setIsDragging(true);
     const touch = e.touches[0];
-    dragStart.current = { x: touch.clientX - offset.x, y: touch.clientY - offset.y };
+    const k = dragScale();
+    dragStart.current = { x: touch.clientX * k - offset.x, y: touch.clientY * k - offset.y };
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (!isDragging || e.touches.length !== 1) return;
     const touch = e.touches[0];
+    const k = dragScale();
     setOffset({
-      x: touch.clientX - dragStart.current.x,
-      y: touch.clientY - dragStart.current.y,
+      x: touch.clientX * k - dragStart.current.x,
+      y: touch.clientY * k - dragStart.current.y,
     });
   };
 
@@ -150,6 +161,9 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
     targetCanvas.height = 256;
     const targetCtx = targetCanvas.getContext('2d');
     if (!targetCtx) return;
+    // JPEG has no transparency: fill first so areas outside the photo aren't black.
+    targetCtx.fillStyle = '#f5e8ff';
+    targetCtx.fillRect(0, 0, 256, 256);
 
     // Image scaling factors
     const baseScale = Math.max(VIEWPORT_SIZE / imgElement.naturalWidth, VIEWPORT_SIZE / imgElement.naturalHeight);
@@ -188,8 +202,9 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
       256
     );
 
-    // Save as data URL
-    const dataUrl = targetCanvas.toDataURL('image/png');
+    // JPEG keeps the avatar around 15–25 KB, small enough to send to the
+    // opponent and to remember in localStorage. (PNG photos are ~10x larger.)
+    const dataUrl = targetCanvas.toDataURL('image/jpeg', 0.86);
     onConfirm(dataUrl);
   };
 
