@@ -112,6 +112,8 @@ export class PongSimulation {
     top: PaddleControl,
     bottom: PaddleControl,
     onPaddleHit?: (side: PaddleSide) => number,
+    /** Move only the paddles (used for hit-stop, when the ball is held still). */
+    paddlesOnly = false,
   ): SimEvent[] {
     const events: SimEvent[] = [];
     let remaining = Math.min(deltaMs, MAX_FRAME_MS);
@@ -128,7 +130,7 @@ export class PongSimulation {
       this.bottomPaddleX = bottomResult.x;
       this.bottomMoved = bottomResult.moved;
 
-      if (this.ballInPlay) {
+      if (this.ballInPlay && !paddlesOnly) {
         this.stepBall(stepMs, events, onPaddleHit);
       }
     }

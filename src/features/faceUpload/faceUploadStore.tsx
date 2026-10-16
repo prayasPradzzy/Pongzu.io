@@ -22,7 +22,7 @@ type FaceUploadAction =
   | { type: 'set-show-crop-editor'; show: boolean }
   | { type: 'set-difficulty'; difficulty: FaceUploadState['difficulty'] }
   // Multiplayer actions
-  | { type: 'set-game-mode'; mode: 'cpu' | 'online' }
+  | { type: 'set-game-mode'; mode: 'cpu' | 'online' | 'local' }
   | { type: 'set-multiplayer-role'; role: 'host' | 'guest' | null }
   | { type: 'set-room-code'; code: string | null }
   | { type: 'set-opponent'; name: string | null; avatarUrl: string | null }
@@ -33,6 +33,8 @@ type FaceUploadAction =
 type FaceUploadContextValue = FaceUploadState & FaceUploadActions;
 
 const NAME_STORAGE_KEY = 'pongzu-name';
+const DIFFICULTY_STORAGE_KEY = 'pongzu-difficulty';
+const DIFFICULTIES = ['easy', 'medium', 'hard', 'nightmare'] as const;
 const FACE_STORAGE_KEY = 'pongzu-face';
 
 function readStored(key: string): string | null {
@@ -63,7 +65,9 @@ const initialState: FaceUploadState = {
   croppedAvatarUrl: rememberedFace,
   faceBallMode: rememberedFace !== null,
   showCropEditor: false,
-  difficulty: 'medium',
+  difficulty: (DIFFICULTIES as readonly string[]).includes(readStored(DIFFICULTY_STORAGE_KEY) ?? '')
+    ? (readStored(DIFFICULTY_STORAGE_KEY) as FaceUploadState['difficulty'])
+    : 'medium',
   // Multiplayer
   gameMode: null,
   multiplayerRole: null,
@@ -200,6 +204,10 @@ export function FaceUploadProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     writeStored(FACE_STORAGE_KEY, state.croppedAvatarUrl);
   }, [state.croppedAvatarUrl]);
+
+  useEffect(() => {
+    writeStored(DIFFICULTY_STORAGE_KEY, state.difficulty);
+  }, [state.difficulty]);
 
   return <FaceUploadContext.Provider value={value}>{children}</FaceUploadContext.Provider>;
 }

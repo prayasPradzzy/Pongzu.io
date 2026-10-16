@@ -1,475 +1,441 @@
 import Phaser from 'phaser';
 
-import { PONG_CONFIG, DIFFICULTY_PRESETS, type Difficulty } from '../config/pongConfig';
+import { PONG_CONFIG } from '../config/pongConfig';
+import { ARENA_HEIGHT, ARENA_WIDTH } from '../utils/sceneSetup';
 
-export type MatchStats = {
-  topScore: number;
-  bottomScore: number;
-  longestRally: number;
+const FONT = 'Nunito, "Avenir Next Rounded", "Arial Rounded MT Bold", system-ui, sans-serif';
+
+export const HINT_STORAGE_KEY = 'pongzu-controls-hint-seen';
+
+/** Text for the first-match controls hint on this device. */
+export function controlsHint(touch: boolean): string {
+  return touch ? '👆 Drag anywhere to move your paddle' : 'Move with ← → or A D  ·  or click and drag';
+}
+
+export function hasSeenControlsHint(): boolean {
+  try {
+    return localStorage.getItem(HINT_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function markControlsHintSeen() {
+  try {
+    localStorage.setItem(HINT_STORAGE_KEY, '1');
+  } catch {
+    // not persisted
+  }
+}
+
+export type HudOptions = {
+  topName: string;
+  bottomName: string;
+  showPing: boolean;
+  /** Same-device play: player 2 sits across the table, so flip their label. */
+  faceTopPlayer: boolean;
+  /** CPU matches offer a "change difficulty" button on the result card. */
+  showChangeDifficulty: boolean;
+  playAgainLabel: string;
 };
 
+export type WinScreenContent = {
+  victory: boolean;
+  title: string;
+  subtitle: string;
+  lines: string[];
+  /** Texture of whoever lost — shown squashed on the card. */
+  loserFaceKey: string | null;
+};
+
+/**
+ * Everything drawn on top of the arena. All positions are in the 600×1000
+ * logical arena. "Top" is always the opponent and "bottom" the local player.
+ */
 export class GameHud {
-  private readonly roundedFont = 'Nunito, "Avenir Next Rounded", "Arial Rounded MT Bold", system-ui, sans-serif';
   private readonly scene: Phaser.Scene;
-  private readonly scoreText: Phaser.GameObjects.Text;
-  private readonly scoreGlowText: Phaser.GameObjects.Text;
+  private readonly topScoreText: Phaser.GameObjects.Text;
+  private readonly bottomScoreText: Phaser.GameObjects.Text;
   private readonly countdownText: Phaser.GameObjects.Text;
   private readonly pointText: Phaser.GameObjects.Text;
   private readonly messageText: Phaser.GameObjects.Text;
+  private readonly bannerText: Phaser.GameObjects.Text;
+  private readonly topNameLabel: Phaser.GameObjects.Text;
+  private readonly bottomNameLabel: Phaser.GameObjects.Text;
+  private readonly exitButton: Phaser.GameObjects.Container;
+  private readonly pingText?: Phaser.GameObjects.Text;
+
   private readonly winPanel: Phaser.GameObjects.Container;
   private readonly winTitleText: Phaser.GameObjects.Text;
   private readonly winSubtitleText: Phaser.GameObjects.Text;
   private readonly winStatsText: Phaser.GameObjects.Text;
-  private readonly topNameLabel: Phaser.GameObjects.Text;
-  private readonly bottomNameLabel: Phaser.GameObjects.Text;
-  private readonly exitButtonContainer: Phaser.GameObjects.Container;
-  private readonly pingText?: Phaser.GameObjects.Text;
   private readonly playAgainBg: Phaser.GameObjects.Rectangle;
   private readonly playAgainText: Phaser.GameObjects.Text;
+  private loserFace: Phaser.GameObjects.Image | null = null;
+  private hint: Phaser.GameObjects.Container | null = null;
+  private topScore = -1;
+  private bottomScore = -1;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, options: HudOptions) {
     this.scene = scene;
-    this.scoreGlowText = this.scene.add.text(0, 0, '0 - 0', {
-      fontFamily: this.roundedFont,
-      fontSize: '74px',
+    const W = ARENA_WIDTH;
+    const H = ARENA_HEIGHT;
+
+    // ── Scores: one big, faint number in each half (classic Pong) ──
+    const scoreStyle: Phaser.Types.GameObjects.Text.TextStyle = {
+      fontFamily: FONT,
+      fontSize: '170px',
+      fontStyle: '900',
       color: PONG_CONFIG.colors.text,
-      fontStyle: '700',
-    });
-    this.scoreGlowText.setOrigin(0.5, 0);
-    this.scoreGlowText.setAlpha(0.3);
-    this.scoreGlowText.setStroke('#fff8ff', 16);
+    };
+    this.topScoreText = scene.add.text(W / 2, H * 0.27, '0', scoreStyle).setOrigin(0.5).setAlpha(0.13).setDepth(1);
+    this.bottomScoreText = scene.add.text(W / 2, H * 0.73, '0', scoreStyle).setOrigin(0.5).setAlpha(0.13).setDepth(1);
+    if (options.faceTopPlayer) this.topScoreText.setAngle(180);
 
-    this.scoreText = this.scene.add.text(0, 0, '0 - 0', {
-      fontFamily: this.roundedFont,
-      fontSize: '68px',
-      color: PONG_CONFIG.colors.text,
-      fontStyle: '700',
-    });
-    this.scoreText.setOrigin(0.5, 0);
-    this.scoreText.setStroke('#fff8ff', 12);
-    this.scoreText.setShadow(0, 0, '#FFB7E1', 20, false, true);
+    // ── Centre messages ──
+    this.countdownText = scene.add
+      .text(W / 2, H / 2, '', {
+        fontFamily: FONT,
+        fontSize: '140px',
+        fontStyle: '900',
+        color: PONG_CONFIG.colors.text,
+      })
+      .setOrigin(0.5)
+      .setAlpha(0)
+      .setStroke('#ffffff', 18)
+      .setDepth(30);
 
-    this.countdownText = this.scene.add.text(0, 0, '', {
-      fontFamily: this.roundedFont,
-      fontSize: '112px',
-      color: PONG_CONFIG.colors.text,
-      fontStyle: '700',
-    });
-    this.countdownText.setOrigin(0.5);
-    this.countdownText.setAlpha(0);
-    this.countdownText.setStroke('#fff8ff', 16);
-    this.countdownText.setShadow(0, 0, '#C8B6FF', 22, false, true);
+    this.pointText = scene.add
+      .text(W / 2, H / 2 + 112, '', {
+        fontFamily: FONT,
+        fontSize: '34px',
+        fontStyle: '900',
+        color: PONG_CONFIG.colors.text,
+      })
+      .setOrigin(0.5)
+      .setAlpha(0)
+      .setStroke('#ffffff', 10)
+      .setDepth(30);
 
-    this.pointText = this.scene.add.text(0, 0, '', {
-      fontFamily: this.roundedFont,
-      fontSize: '26px',
-      color: PONG_CONFIG.colors.text,
-      fontStyle: '700',
-    });
-    this.pointText.setOrigin(0.5);
-    this.pointText.setAlpha(0);
-    this.pointText.setStroke('#fff8ff', 8);
-    this.pointText.setShadow(0, 0, '#FF8DC7', 14, false, true);
+    this.messageText = scene.add
+      .text(W / 2, H / 2 + 158, '', {
+        fontFamily: FONT,
+        fontSize: '20px',
+        fontStyle: '800',
+        color: PONG_CONFIG.colors.mutedText,
+      })
+      .setOrigin(0.5)
+      .setAlpha(0)
+      .setLetterSpacing(2)
+      .setDepth(30);
 
-    this.messageText = this.scene.add.text(0, 0, '', {
-      fontFamily: this.roundedFont,
-      fontSize: '18px',
-      color: PONG_CONFIG.colors.mutedText,
-      fontStyle: '700',
-    });
-    this.messageText.setOrigin(0.5);
-    this.messageText.setAlpha(0);
-    this.messageText.setLetterSpacing(1.5);
+    this.bannerText = scene.add
+      .text(W / 2, H / 2 - 130, '', {
+        fontFamily: FONT,
+        fontSize: '46px',
+        fontStyle: '900',
+        color: '#ff4fa3',
+        align: 'center',
+      })
+      .setOrigin(0.5)
+      .setAlpha(0)
+      .setStroke('#ffffff', 12)
+      .setDepth(31);
 
-    const config = this.scene.registry.get('customConfig');
-    const p1Name = config?.playerName || 'PLAYER';
-    const p2Name = config?.mode === 'online' ? (config?.opponentName || 'OPPONENT') : 'CPU';
+    // ── Names follow the paddles ──
+    this.topNameLabel = this.createNameLabel(options.topName, PONG_CONFIG.colors.paddleTop);
+    this.bottomNameLabel = this.createNameLabel(options.bottomName, PONG_CONFIG.colors.paddleBottom);
+    if (options.faceTopPlayer) this.topNameLabel.setAngle(180);
 
-    this.topNameLabel = this.createNameLabel(p2Name, PONG_CONFIG.colors.cyan);
-    this.bottomNameLabel = this.createNameLabel(p1Name, PONG_CONFIG.colors.pink);
-
-    // Build exit button
-    const exitBg = this.scene.add.circle(0, 0, 16, 0x000000, 0.2);
+    // ── Exit button ──
+    const exitBg = scene.add.circle(0, 0, 22, 0xffffff, 0.85).setStrokeStyle(2, PONG_CONFIG.colors.frame, 1);
     exitBg.setInteractive({ useHandCursor: true });
-    
-    const exitText = this.scene.add.text(0, 0, '✕', {
-      fontFamily: 'system-ui, sans-serif',
-      fontSize: '18px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-    });
-    exitText.setOrigin(0.5);
-    
-    this.exitButtonContainer = this.scene.add.container(0, 0, [exitBg, exitText]);
-    this.exitButtonContainer.setAlpha(0.6);
-    this.exitButtonContainer.setDepth(100);
-    
-    exitBg.on('pointerover', () => { this.exitButtonContainer.setAlpha(1); exitBg.setScale(1.1); exitText.setScale(1.1); });
-    exitBg.on('pointerout', () => { this.exitButtonContainer.setAlpha(0.6); exitBg.setScale(1); exitText.setScale(1); });
-    exitBg.on('pointerdown', () => { this.scene.events.emit('exit-match'); });
+    const exitText = scene.add
+      .text(0, 0, '✕', { fontFamily: FONT, fontSize: '20px', fontStyle: '900', color: '#7c5cff' })
+      .setOrigin(0.5);
+    this.exitButton = scene.add.container(W - 54, 54, [exitBg, exitText]).setDepth(100);
+    exitBg.on('pointerdown', () => scene.events.emit('exit-match'));
 
-    if (config?.mode === 'online') {
-      this.pingText = this.scene.add.text(0, 0, 'Ping: ---', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '12px',
-        color: '#9A84E8',
-        fontStyle: '600',
-      });
-      this.pingText.setOrigin(0, 0);
-      this.pingText.setDepth(100);
+    if (options.showPing) {
+      this.pingText = scene.add
+        .text(40, 44, 'Ping —', { fontFamily: FONT, fontSize: '15px', fontStyle: '800', color: '#8F78E8' })
+        .setDepth(100);
     }
 
-    // Build win panel
-    const winBackdrop = this.scene.add.rectangle(0, 0, 440, 380, 0x050816, 0.92);
-    winBackdrop.setFillStyle(0xfbf7ff, 0.96);
-    winBackdrop.setStrokeStyle(2, 0xffb7e1, 0.7);
-    winBackdrop.setRounded(24);
+    // ── Result card ──
+    const panelBg = scene.add.rectangle(0, 0, 480, 540, 0xfffaff, 0.97);
+    panelBg.setStrokeStyle(3, 0xff8dc7, 0.9);
+    panelBg.setRounded(32);
 
-    this.winTitleText = this.scene.add.text(0, -126, 'VICTORY', {
-      fontFamily: this.roundedFont,
-      fontSize: '20px',
-      color: '#7B5CE6',
-      fontStyle: '800',
-    });
-    this.winTitleText.setOrigin(0.5);
-    this.winTitleText.setLetterSpacing(4);
+    this.winTitleText = scene.add
+      .text(0, -88, 'VICTORY', { fontFamily: FONT, fontSize: '22px', fontStyle: '900', color: '#7B5CE6' })
+      .setOrigin(0.5)
+      .setLetterSpacing(6);
 
-    this.winSubtitleText = this.scene.add.text(0, -88, 'YOU WIN!', {
-      fontFamily: this.roundedFont,
-      fontSize: '32px',
-      color: '#7B5CE6',
-      fontStyle: '800',
-      align: 'center',
-      wordWrap: { width: 360 },
-    });
-    this.winSubtitleText.setOrigin(0.5);
+    this.winSubtitleText = scene.add
+      .text(0, -48, '', {
+        fontFamily: FONT,
+        fontSize: '36px',
+        fontStyle: '900',
+        color: '#5B3FD6',
+        align: 'center',
+        wordWrap: { width: 420 },
+      })
+      .setOrigin(0.5);
 
-    this.winStatsText = this.scene.add.text(0, -28, '', {
-      fontFamily: this.roundedFont,
-      fontSize: '15px',
-      color: '#9A84E8',
-      fontStyle: '600',
-      align: 'center',
-      lineSpacing: 8,
-    });
-    this.winStatsText.setOrigin(0.5);
-    
-    const divider = this.scene.add.rectangle(0, 30, 320, 2, 0xc8b6ff, 0.3);
+    this.winStatsText = scene.add
+      .text(0, 26, '', {
+        fontFamily: FONT,
+        fontSize: '18px',
+        fontStyle: '700',
+        color: '#8F78E8',
+        align: 'center',
+        lineSpacing: 8,
+      })
+      .setOrigin(0.5);
 
-    const isOnline = config?.mode === 'online';
-
-    // Buttons
-    const playBg = this.scene.add.rectangle(0, 76, 280, 42, 0x7b5ce6, 1);
-    playBg.setRounded(21);
-    playBg.setInteractive({ useHandCursor: true });
-
-    const playText = this.scene.add.text(0, 76, isOnline ? 'REMATCH' : 'PLAY AGAIN', {
-      fontFamily: this.roundedFont,
-      fontSize: '13px',
-      color: '#ffffff',
-      fontStyle: '800',
-    });
-    playText.setOrigin(0.5);
-    playText.setLetterSpacing(1.5);
-    this.playAgainBg = playBg;
-    this.playAgainText = playText;
-
-    const diffBg = this.scene.add.rectangle(0, 128, 280, 42, 0xffffff, 1);
-    diffBg.setStrokeStyle(2, 0x7b5ce6, 1);
-    diffBg.setRounded(21);
-    diffBg.setInteractive({ useHandCursor: true });
-
-    const diffText = this.scene.add.text(0, 128, 'CHANGE DIFFICULTY', {
-      fontFamily: this.roundedFont,
-      fontSize: '13px',
-      color: '#7b5ce6',
-      fontStyle: '800',
-    });
-    diffText.setOrigin(0.5);
-    diffText.setLetterSpacing(1.5);
-
-    const returnBg = this.scene.add.rectangle(0, isOnline ? 128 : 180, 280, 42, 0xffffff, 1);
-    returnBg.setStrokeStyle(2, 0xff8dc7, 1);
-    returnBg.setRounded(21);
-    returnBg.setInteractive({ useHandCursor: true });
-
-    const returnText = this.scene.add.text(0, isOnline ? 128 : 180, 'RETURN TO MENU', {
-      fontFamily: this.roundedFont,
-      fontSize: '13px',
-      color: '#ff8dc7',
-      fontStyle: '800',
-    });
-    returnText.setOrigin(0.5);
-    returnText.setLetterSpacing(1.5);
-
-    // Event listeners
-    playBg.on('pointerdown', () => {
-      this.scene.events.emit('rematch');
-    });
-
-    diffBg.on('pointerdown', () => {
-      const customConfig = this.scene.registry.get('customConfig');
-      if (customConfig?.onChangeDifficulty) {
-        customConfig.onChangeDifficulty();
-      }
-    });
-
-    returnBg.on('pointerdown', () => {
-      this.scene.events.emit('exit-match');
-    });
-
-    // Hover effects
-    const addHover = (bg: Phaser.GameObjects.Rectangle, txt: Phaser.GameObjects.Text) => {
-      bg.on('pointerover', () => { bg.setScale(1.03); txt.setScale(1.03); });
-      bg.on('pointerout', () => { bg.setScale(1); txt.setScale(1); });
+    const button = (y: number, label: string, primary: boolean) => {
+      const bg = scene.add.rectangle(0, y, 340, 54, primary ? 0x7c5cff : 0xffffff, 1);
+      bg.setRounded(27);
+      if (!primary) bg.setStrokeStyle(2, 0xff8dc7, 1);
+      bg.setInteractive({ useHandCursor: true });
+      const text = scene.add
+        .text(0, y, label, {
+          fontFamily: FONT,
+          fontSize: '17px',
+          fontStyle: '900',
+          color: primary ? '#ffffff' : '#ff4fa3',
+        })
+        .setOrigin(0.5)
+        .setLetterSpacing(1.5);
+      bg.on('pointerover', () => {
+        bg.setScale(1.03);
+        text.setScale(1.03);
+      });
+      bg.on('pointerout', () => {
+        bg.setScale(1);
+        text.setScale(1);
+      });
+      return { bg, text };
     };
-    addHover(playBg, playText);
-    addHover(diffBg, diffText);
-    addHover(returnBg, returnText);
 
-    const winPanelChildren: Phaser.GameObjects.GameObject[] = [
-      winBackdrop,
+    const playAgain = button(118, options.playAgainLabel, true);
+    playAgain.bg.on('pointerdown', () => scene.events.emit('rematch'));
+    this.playAgainBg = playAgain.bg;
+    this.playAgainText = playAgain.text;
+
+    const children: Phaser.GameObjects.GameObject[] = [
+      panelBg,
       this.winTitleText,
       this.winSubtitleText,
       this.winStatsText,
-      divider,
-      playBg,
-      playText,
-      returnBg,
-      returnText,
+      playAgain.bg,
+      playAgain.text,
     ];
-    
-    if (!isOnline) {
-      winPanelChildren.push(diffBg, diffText);
-    } else {
-      diffBg.destroy();
-      diffText.destroy();
+
+    let nextY = 184;
+    if (options.showChangeDifficulty) {
+      const change = button(nextY, 'CHANGE DIFFICULTY', false);
+      change.bg.on('pointerdown', () => this.scene.registry.get('customConfig')?.onChangeDifficulty?.());
+      children.push(change.bg, change.text);
+      nextY += 62;
     }
+    const menu = button(nextY, 'MAIN MENU', false);
+    menu.bg.on('pointerdown', () => scene.events.emit('exit-match'));
+    children.push(menu.bg, menu.text);
 
-    this.winPanel = this.scene.add.container(0, 0, winPanelChildren);
-    this.winPanel.setAlpha(0);
-    this.winPanel.setScale(0.96);
-    this.winPanel.setDepth(50);
-
+    this.winPanel = scene.add.container(W / 2, H / 2, children).setDepth(50).setAlpha(0).setVisible(false);
   }
 
-  resize(width: number, height: number) {
-    this.scoreGlowText.setPosition(width / 2, 54);
-    this.scoreText.setPosition(width / 2, 54);
-    this.countdownText.setPosition(width / 2, height / 2 - 10);
-    this.pointText.setPosition(width / 2, height / 2 + 74);
-    this.messageText.setPosition(width / 2, height / 2 + 112);
-    this.winPanel.setPosition(width / 2, height / 2 - 8);
-    this.exitButtonContainer.setPosition(width - 32, 32);
-    if (this.pingText) {
-      this.pingText.setPosition(16, 16);
-    }
-  }
-
-  setNamePositions(topX: number, bottomX: number, topY: number, bottomY: number) {
-    this.topNameLabel.setPosition(topX, topY - 32);
-    this.bottomNameLabel.setPosition(bottomX, bottomY + 32);
+  setNamePositions(topX: number, bottomX: number) {
+    this.topNameLabel.setPosition(topX, PONG_CONFIG.paddle.topOffset - 34);
+    this.bottomNameLabel.setPosition(bottomX, ARENA_HEIGHT - PONG_CONFIG.paddle.bottomOffset + 34);
   }
 
   setPing(pingMs: number) {
-    if (this.pingText) {
-      this.pingText.setText(`Ping: ${Math.round(pingMs)}ms`);
-      // Optional: change color based on ping
-      if (pingMs < 80) this.pingText.setColor('#9A84E8');
-      else if (pingMs < 150) this.pingText.setColor('#E6C35C');
-      else this.pingText.setColor('#E65C5C');
-    }
+    if (!this.pingText) return;
+    this.pingText.setText(pingMs > 0 ? `Ping ${Math.round(pingMs)}ms` : 'Ping —');
+    this.pingText.setColor(pingMs < 90 ? '#8F78E8' : pingMs < 160 ? '#D9A21B' : '#E65C5C');
   }
 
+  /** top = opponent, bottom = local player. The side that just changed pops. */
   setScore(topScore: number, bottomScore: number) {
-    const score = `${topScore} - ${bottomScore}`;
-    this.scoreText.setText(score);
-    this.scoreGlowText.setText(score);
-
-    this.scene.tweens.add({
-      targets: [this.scoreText, this.scoreGlowText],
-      scaleX: 1.05,
-      scaleY: 1.05,
-      duration: 170,
-      yoyo: true,
-      ease: 'Sine.easeOut',
-    });
+    if (topScore !== this.topScore) this.popScore(this.topScoreText, topScore, this.topScore >= 0);
+    if (bottomScore !== this.bottomScore) this.popScore(this.bottomScoreText, bottomScore, this.bottomScore >= 0);
+    this.topScore = topScore;
+    this.bottomScore = bottomScore;
   }
 
   showCountdown(value: string, isGo?: boolean) {
     this.countdownText.setText(value);
-    this.countdownText.setAlpha(1);
-    this.countdownText.setScale(0.84);
+    this.countdownText.setColor(isGo ? '#FF4FA3' : PONG_CONFIG.colors.text);
+    this.countdownText.setAlpha(1).setScale(0.6);
+    this.scene.tweens.killTweensOf(this.countdownText);
+    this.scene.tweens.add({ targets: this.countdownText, scale: 1, duration: 260, ease: 'Back.Out' });
     if (isGo) {
-      this.countdownText.setColor('#FF8DC7');
-      this.countdownText.setShadow(0, 0, '#FF8DC7', 22, false, true);
-    } else {
-      this.countdownText.setColor(PONG_CONFIG.colors.text);
-      this.countdownText.setShadow(0, 0, '#C8B6FF', 22, false, true);
+      this.scene.tweens.add({ targets: this.countdownText, alpha: 0, scale: 1.5, delay: 260, duration: 260 });
     }
-
-    this.scene.tweens.add({
-      targets: this.countdownText,
-      scaleX: 1,
-      scaleY: 1,
-      alpha: 1,
-      duration: 220,
-      ease: 'Back.Out',
-    });
   }
 
   hideCountdown() {
+    this.scene.tweens.killTweensOf(this.countdownText);
     this.countdownText.setAlpha(0);
   }
 
   showPointMessage(value: string) {
-    this.pointText.setText(value);
-    this.pointText.setAlpha(1);
-    this.pointText.setScale(0.94);
-
-    this.scene.tweens.add({
-      targets: this.pointText,
-      alpha: 0,
-      scaleX: 1.08,
-      scaleY: 1.08,
-      duration: 520,
-      ease: 'Quad.Out',
-    });
+    this.pointText.setText(value).setAlpha(1).setScale(0.8);
+    this.scene.tweens.killTweensOf(this.pointText);
+    this.scene.tweens.add({ targets: this.pointText, scale: 1, duration: 200, ease: 'Back.Out' });
+    this.scene.tweens.add({ targets: this.pointText, alpha: 0, delay: 900, duration: 300 });
   }
 
   hidePointMessage() {
+    this.scene.tweens.killTweensOf(this.pointText);
     this.pointText.setAlpha(0);
   }
 
   showMessage(value: string) {
-    this.messageText.setText(value);
-    this.messageText.setAlpha(1);
+    this.messageText.setText(value).setAlpha(1);
   }
 
   hideMessage() {
     this.messageText.setAlpha(0);
   }
 
-  /** Relabel the win panel's primary button (e.g. while waiting on a rematch vote). */
-  setPlayAgainLabel(label: string, enabled = true) {
-    this.playAgainText.setText(label);
-    this.playAgainBg.setFillStyle(enabled ? 0x7b5ce6 : 0xb9aee0, 1);
-    if (enabled) {
-      this.playAgainBg.setInteractive({ useHandCursor: true });
-    } else {
-      this.playAgainBg.disableInteractive();
-    }
+  /** Big celebratory line, e.g. "MATCH POINT" or "20 RALLY!". */
+  showBanner(value: string, color = '#FF4FA3') {
+    this.bannerText.setText(value).setColor(color).setAlpha(1).setScale(0.4).setAngle(-4);
+    this.scene.tweens.killTweensOf(this.bannerText);
+    this.scene.tweens.add({ targets: this.bannerText, scale: 1, angle: 0, duration: 320, ease: 'Back.Out' });
+    this.scene.tweens.add({ targets: this.bannerText, alpha: 0, delay: 1100, duration: 400 });
   }
 
-  showWinScreen(outcome: 'victory' | 'defeat', stats: MatchStats, note?: string) {
-    const config = this.scene.registry.get('customConfig');
-    const playerName = config?.playerName ?? 'Player';
-    const isOnline = config?.mode === 'online';
-    const opponentName = isOnline ? (config?.opponentName ?? 'Opponent') : 'CPU';
+  /** Small number that floats up from a paddle (rally counter). */
+  popText(value: string, x: number, y: number, rising: boolean) {
+    const text = this.scene.add
+      .text(x, y, value, { fontFamily: FONT, fontSize: '26px', fontStyle: '900', color: '#FF4FA3' })
+      .setOrigin(0.5)
+      .setStroke('#ffffff', 8)
+      .setDepth(32);
+    this.scene.tweens.add({
+      targets: text,
+      y: y + (rising ? -60 : 60),
+      alpha: 0,
+      scale: 1.3,
+      duration: 650,
+      ease: 'Quad.easeOut',
+      onComplete: () => text.destroy(),
+    });
+  }
 
-    if (outcome === 'victory') {
-      this.winTitleText.setText('VICTORY');
-      this.winTitleText.setColor('#7B5CE6');
-      this.winSubtitleText.setText(`${playerName} wins!`);
-      this.winSubtitleText.setColor('#7B5CE6');
-    } else {
-      this.winTitleText.setText('DEFEAT');
-      this.winTitleText.setColor('#E65C5C');
-      this.winSubtitleText.setText(`${opponentName} wins!`);
-      this.winSubtitleText.setColor('#E65C5C');
+  /** Controls hint in a pill near the player's paddle; stays until hideHint(). */
+  showHint(value: string) {
+    this.hideHint();
+    const text = this.scene.add
+      .text(0, 0, value, {
+        fontFamily: FONT,
+        fontSize: '19px',
+        fontStyle: '800',
+        color: '#ffffff',
+        align: 'center',
+        wordWrap: { width: 460 },
+      })
+      .setOrigin(0.5);
+    const bg = this.scene.add.rectangle(0, 0, text.width + 44, text.height + 22, 0x5b3fd6, 0.88);
+    bg.setRounded((text.height + 22) / 2);
+    this.hint = this.scene.add
+      .container(ARENA_WIDTH / 2, ARENA_HEIGHT - PONG_CONFIG.paddle.bottomOffset - 110, [bg, text])
+      .setDepth(40);
+    this.scene.tweens.add({ targets: this.hint, y: this.hint.y - 8, duration: 700, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
+  }
+
+  hideHint() {
+    if (!this.hint) return;
+    const hint = this.hint;
+    this.hint = null;
+    this.scene.tweens.killTweensOf(hint);
+    this.scene.tweens.add({ targets: hint, alpha: 0, duration: 250, onComplete: () => hint.destroy() });
+  }
+
+  /** Relabel the result card's primary button (e.g. while waiting on a rematch vote). */
+  setPlayAgainLabel(label: string, enabled = true) {
+    this.playAgainText.setText(label);
+    this.playAgainBg.setFillStyle(enabled ? 0x7c5cff : 0xc4b8ec, 1);
+    if (enabled) this.playAgainBg.setInteractive({ useHandCursor: true });
+    else this.playAgainBg.disableInteractive();
+  }
+
+  showWinScreen(content: WinScreenContent) {
+    this.winTitleText.setText(content.title).setColor(content.victory ? '#7B5CE6' : '#E65C5C');
+    this.winSubtitleText.setText(content.subtitle).setColor(content.victory ? '#5B3FD6' : '#D94848');
+    this.winStatsText.setText(content.lines.join('\n'));
+
+    this.loserFace?.destroy();
+    this.loserFace = null;
+    if (content.loserFaceKey && this.scene.textures.exists(content.loserFaceKey)) {
+      // The loser's face, squashed flat and wobbling. Petty, and the point of the game.
+      const face = this.scene.add.image(0, -178, content.loserFaceKey).setDisplaySize(120, 120);
+      const base = face.scaleX;
+      face.setScale(base * 1.35, base * 0.55);
+      this.scene.tweens.add({
+        targets: face,
+        scaleX: base * 1.2,
+        scaleY: base * 0.68,
+        duration: 420,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+      this.winPanel.addAt(face, 1);
+      this.loserFace = face;
     }
 
-    const statsLines = isOnline
-      ? [
-          `Score: ${stats.bottomScore} – ${stats.topScore}`,
-          `Longest Rally: ${stats.longestRally} hits`,
-        ]
-      : [
-          `Score: ${stats.bottomScore} – ${stats.topScore}`,
-          `Difficulty: ${DIFFICULTY_PRESETS[(config?.difficulty as Difficulty) ?? 'medium'].label}`,
-          `Longest Rally: ${stats.longestRally} hits`,
-        ];
-    if (note) statsLines.unshift(note);
-    this.winStatsText.setText(statsLines.join('\n'));
-
-    this.setPlayAgainLabel(isOnline ? 'REMATCH' : 'PLAY AGAIN');
-    this.persistStats(outcome, stats, isOnline ? null : ((config?.difficulty as Difficulty) ?? 'medium'));
-
-    this.winPanel.setAlpha(1);
-    this.winPanel.setScale(0.92);
-
-    this.scene.tweens.add({
-      targets: this.winPanel,
-      scaleX: 1,
-      scaleY: 1,
-      duration: 250,
-      ease: 'Back.Out',
-    });
+    this.winPanel.setVisible(true).setAlpha(1).setScale(0.85);
+    this.scene.tweens.add({ targets: this.winPanel, scale: 1, duration: 320, ease: 'Back.Out' });
   }
 
   hideWinScreen() {
-    this.winPanel.setAlpha(0);
-    this.winPanel.setScale(0.96);
+    this.winPanel.setVisible(false).setAlpha(0);
+    this.loserFace?.destroy();
+    this.loserFace = null;
   }
 
   destroy() {
-    this.scoreGlowText.destroy();
-    this.scoreText.destroy();
-    this.countdownText.destroy();
-    this.pointText.destroy();
-    this.messageText.destroy();
+    [
+      this.topScoreText,
+      this.bottomScoreText,
+      this.countdownText,
+      this.pointText,
+      this.messageText,
+      this.bannerText,
+      this.topNameLabel,
+      this.bottomNameLabel,
+    ].forEach((text) => {
+      this.scene.tweens.killTweensOf(text);
+      text.destroy();
+    });
+    this.hint?.destroy();
     this.winPanel.destroy();
-    this.topNameLabel.destroy();
-    this.bottomNameLabel.destroy();
-    this.exitButtonContainer.destroy();
+    this.exitButton.destroy();
     this.pingText?.destroy();
   }
 
-  /** difficulty is null for online matches, which don't count towards "best difficulty". */
-  private persistStats(outcome: 'victory' | 'defeat', stats: MatchStats, difficulty: Difficulty | null) {
-    try {
-      const raw = localStorage.getItem('facepong-stats');
-      const saved = raw ? JSON.parse(raw) : { wins: 0, losses: 0, matchesPlayed: 0, longestRally: 0, highestDifficultyBeaten: '' };
-
-      saved.matchesPlayed += 1;
-      if (outcome === 'victory') {
-        saved.wins += 1;
-        const order: Difficulty[] = ['easy', 'medium', 'hard', 'nightmare'];
-        const currentIdx = difficulty ? order.indexOf(difficulty) : -1;
-        const savedIdx = order.indexOf(saved.highestDifficultyBeaten);
-        if (currentIdx > savedIdx) {
-          saved.highestDifficultyBeaten = difficulty ?? saved.highestDifficultyBeaten;
-        }
-      } else {
-        saved.losses += 1;
-      }
-      if (stats.longestRally > saved.longestRally) {
-        saved.longestRally = stats.longestRally;
-      }
-
-      localStorage.setItem('facepong-stats', JSON.stringify(saved));
-    } catch {
-      // localStorage not available — no-op
-    }
+  private popScore(text: Phaser.GameObjects.Text, value: number, animate: boolean) {
+    text.setText(String(value));
+    if (!animate) return;
+    this.scene.tweens.killTweensOf(text);
+    text.setAlpha(0.45).setScale(1.25);
+    this.scene.tweens.add({ targets: text, alpha: 0.13, scale: 1, duration: 700, ease: 'Quad.easeOut' });
   }
 
   private createNameLabel(name: string, color: number) {
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
     const label = this.scene.add.text(0, 0, name.toUpperCase(), {
-      fontFamily: this.roundedFont,
-      fontSize: '18px',
-      color: '#ffffff',
-      fontStyle: '800',
+      fontFamily: FONT,
+      fontSize: '17px',
+      fontStyle: '900',
+      color: '#' + color.toString(16).padStart(6, '0'),
     });
-    label.setResolution(dpr);
-    label.setOrigin(0.5);
-    label.setLetterSpacing(2);
-    label.setShadow(0, 2, '#000000', 4, false, true);
-    label.setAlpha(0.8);
-    // Tint color isn't perfectly applied to text in the same way, but we can set the color string
-    const hexColor = '#' + color.toString(16).padStart(6, '0');
-    label.setColor(hexColor);
-    
+    label.setOrigin(0.5).setLetterSpacing(2).setStroke('#ffffff', 6).setDepth(6);
     return label;
   }
 }

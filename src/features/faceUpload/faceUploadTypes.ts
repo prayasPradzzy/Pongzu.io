@@ -12,6 +12,8 @@ export type UiStage =
   | 'modeSelect'
   | 'ready'
   | 'menu'
+  | 'settings'
+  | 'profile'
   | 'stats';
 
 export type FaceUploadState = {
@@ -24,7 +26,7 @@ export type FaceUploadState = {
   faceBallMode: boolean;
 
   // ─── Multiplayer state ──────────────────────────────────────────────────
-  gameMode: 'cpu' | 'online' | null;
+  gameMode: 'cpu' | 'online' | 'local' | null;
   multiplayerRole: 'host' | 'guest' | null;
   roomCode: string | null;
   opponentName: string | null;
@@ -59,7 +61,7 @@ export type FaceUploadActions = {
   setDifficulty: (difficulty: FaceUploadState['difficulty']) => void;
 
   // ─── Multiplayer actions ────────────────────────────────────────────────
-  setGameMode: (mode: 'cpu' | 'online') => void;
+  setGameMode: (mode: 'cpu' | 'online' | 'local') => void;
   setMultiplayerRole: (role: 'host' | 'guest' | null) => void;
   setRoomCode: (code: string | null) => void;
   setOpponent: (name: string | null, avatarUrl: string | null) => void;

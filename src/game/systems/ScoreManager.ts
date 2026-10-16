@@ -3,33 +3,42 @@ import type Phaser from 'phaser';
 import { PONG_CONFIG, type PaddleSide, type ServeDirection } from '../config/pongConfig';
 import { GameHud } from '../ui/GameHud';
 import { audioManager } from './AudioManager';
-import type { VisualEffectsSystem } from './VisualEffectsSystem';
 
-type ServeCallback = (direction: ServeDirection) => void;
+export type MatchResult = {
+  topScore: number;
+  bottomScore: number;
+  longestRally: number;
+  /** px/s */
+  topSpeed: number;
+};
 
+type ScoreManagerOptions = {
+  winningScore: number;
+  /** Text shown when a side scores, e.g. "🎉 YOU SCORE". */
+  pointMessage: (scorer: PaddleSide) => string;
+  onServe: (direction: ServeDirection) => void;
+  onMatchOver: (result: MatchResult) => void;
+};
+
+/** Match flow for locally simulated matches (CPU and same-device). */
 export class ScoreManager {
   private topScore = 0;
   private bottomScore = 0;
   private rallyHits = 0;
   private longestRally = 0;
+  private topSpeed = 0;
   private currentBallSpeed: number = PONG_CONFIG.ball.initialSpeed;
   private roundActive = false;
   private matchOver = false;
   private countdownRun = 0;
   private readonly scene: Phaser.Scene;
   private readonly hud: GameHud;
-  private readonly onServe: ServeCallback;
-  private effects: VisualEffectsSystem | null = null;
+  private readonly options: ScoreManagerOptions;
 
-  constructor(scene: Phaser.Scene, hud: GameHud, onServe: ServeCallback) {
+  constructor(scene: Phaser.Scene, hud: GameHud, options: ScoreManagerOptions) {
     this.scene = scene;
     this.hud = hud;
-    this.onServe = onServe;
-  }
-
-  /** Link the effects system so ScoreManager can trigger score explosions */
-  setEffects(effects: VisualEffectsSystem) {
-    this.effects = effects;
+    this.options = options;
   }
 
   startMatch(initialServe: ServeDirection) {
@@ -40,8 +49,9 @@ export class ScoreManager {
     this.currentBallSpeed = PONG_CONFIG.ball.initialSpeed;
     this.rallyHits = 0;
     this.longestRally = 0;
-    this.hud.setScore(this.topScore, this.bottomScore);
-    this.hud.showMessage('READY');
+    this.topSpeed = 0;
+    this.hud.setScore(0, 0);
+    this.hud.showMessage(`FIRST TO ${this.options.winningScore}`);
     this.hud.hideWinScreen();
     this.runCountdown(initialServe);
   }
@@ -58,28 +68,19 @@ export class ScoreManager {
     return this.currentBallSpeed;
   }
 
-  getLongestRally() {
-    return this.longestRally;
+  getRallyHits() {
+    return this.rallyHits;
   }
 
-  getTopScore() {
-    return this.topScore;
-  }
-
-  getBottomScore() {
-    return this.bottomScore;
-  }
-
+  /** Counts the hit and returns the ball speed for the return shot. */
   registerPaddleHit() {
     this.rallyHits += 1;
-
-    if (this.rallyHits > this.longestRally) {
-      this.longestRally = this.rallyHits;
-    }
+    this.longestRally = Math.max(this.longestRally, this.rallyHits);
 
     if (this.rallyHits % PONG_CONFIG.ball.boostEveryHits === 0) {
       this.currentBallSpeed = Math.min(this.currentBallSpeed + PONG_CONFIG.ball.speedBoost, PONG_CONFIG.ball.maxSpeed);
     }
+    this.topSpeed = Math.max(this.topSpeed, this.currentBallSpeed);
 
     return this.currentBallSpeed;
   }
@@ -90,49 +91,26 @@ export class ScoreManager {
     }
 
     this.roundActive = false;
-
-    if (winner === 'top') {
-      this.topScore += 1;
-    } else {
-      this.bottomScore += 1;
-    }
+    if (winner === 'top') this.topScore += 1;
+    else this.bottomScore += 1;
 
     this.hud.setScore(this.topScore, this.bottomScore);
+    this.hud.showPointMessage(this.options.pointMessage(winner));
 
-    const label = winner === 'bottom' ? '🎉 YOU SCORE' : '😤 CPU SCORES';
-    this.hud.showPointMessage(label);
-    this.hud.showMessage('POINT');
-    this.scene.cameras.main.flash(80, 0, 229, 255, false);
-
-    // Score explosion effect at ball's last position (center of arena)
-    const cx = this.scene.scale.width / 2;
-    const cy = this.scene.scale.height / 2;
-    this.effects?.playScoreExplosion(cx, cy);
-
-    // Track rally before resetting
-    if (this.rallyHits > this.longestRally) {
-      this.longestRally = this.rallyHits;
-    }
     this.rallyHits = 0;
     this.currentBallSpeed = PONG_CONFIG.ball.initialSpeed;
 
-    if (this.topScore >= PONG_CONFIG.winningScore || this.bottomScore >= PONG_CONFIG.winningScore) {
+    const target = this.options.winningScore;
+    if (this.topScore >= target || this.bottomScore >= target) {
       this.matchOver = true;
       this.hud.hideCountdown();
       this.hud.hideMessage();
       this.hud.hidePointMessage();
-
-      const playerWon = this.bottomScore > this.topScore;
-      if (playerWon) {
-        audioManager.playWin();
-      } else {
-        audioManager.playLose();
-      }
-
-      this.hud.showWinScreen(playerWon ? 'victory' : 'defeat', {
+      this.options.onMatchOver({
         topScore: this.topScore,
         bottomScore: this.bottomScore,
         longestRally: this.longestRally,
+        topSpeed: this.topSpeed,
       });
       return;
     }
@@ -147,23 +125,22 @@ export class ScoreManager {
     const countdownText = ['3', '2', '1', 'GO'];
     let index = 0;
     const run = ++this.countdownRun;
+    audioManager.duckMusic(true);
+
+    const target = this.options.winningScore;
+    if (this.topScore === target - 1 || this.bottomScore === target - 1) {
+      this.hud.showBanner('MATCH POINT');
+      audioManager.playRallyMilestone();
+    }
 
     const tick = () => {
       if (run !== this.countdownRun) return; // superseded by a newer countdown
       if (index < countdownText.length) {
         const value = countdownText[index];
         const isGo = value === 'GO';
-
-        // SFX
-        if (isGo) {
-          audioManager.playCountdownGo();
-        } else {
-          audioManager.playCountdownTick();
-        }
-
-        // Enhanced visual: show with scale-up, then fade out before next tick
+        if (isGo) audioManager.playCountdownGo();
+        else audioManager.playCountdownTick();
         this.hud.showCountdown(value, isGo);
-
         index += 1;
         this.scene.time.delayedCall(500, tick);
         return;
@@ -172,8 +149,9 @@ export class ScoreManager {
       this.hud.hideCountdown();
       this.hud.hidePointMessage();
       this.hud.hideMessage();
+      audioManager.duckMusic(false);
       this.roundActive = true;
-      this.onServe(nextServe);
+      this.options.onServe(nextServe);
     };
 
     tick();

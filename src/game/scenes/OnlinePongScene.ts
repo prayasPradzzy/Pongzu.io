@@ -1,9 +1,9 @@
 import Phaser from 'phaser';
 
-import { Ball } from '../entities/Ball';
+import { Ball, PLAIN_BALL_KEY } from '../entities/Ball';
 import { Paddle } from '../entities/Paddle';
 import { PONG_CONFIG } from '../config/pongConfig';
-import { GameHud } from '../ui/GameHud';
+import { GameHud, controlsHint, hasSeenControlsHint, markControlsHintSeen } from '../ui/GameHud';
 import { ArenaBackdrop } from '../ui/ArenaBackdrop';
 import { VisualEffectsSystem } from '../systems/VisualEffectsSystem';
 import { ReconciliationBuffer } from '../systems/ReconciliationBuffer';
@@ -11,6 +11,9 @@ import { NetworkInputEmitter } from '../systems/NetworkInputEmitter';
 import { InputManager } from '../systems/InputManager';
 import { advancePaddle, IDLE_CONTROL } from '../systems/PongSimulation';
 import { audioManager } from '../systems/AudioManager';
+import { FACE_ME, FACE_OPPONENT } from './BootScene';
+import { ARENA_HEIGHT, ARENA_WIDTH, setupSharpCamera } from '../utils/sceneSetup';
+import { recordMatch, toKmh } from '../../features/stats/statsStore';
 import {
   socketService as socketServiceInstance,
   type ConnectionStatus,
@@ -18,6 +21,9 @@ import {
 import type { Role, MatchState, MatchOverPayload, PlayerDisconnectedPayload } from '../../protocol/events';
 
 type SocketServiceType = typeof socketServiceInstance;
+
+const ONLINE_WINNING_SCORE = PONG_CONFIG.winningScore;
+const RALLY_MILESTONES = [10, 20, 30, 50, 75, 100];
 
 /**
  * Online multiplayer Phaser scene.
@@ -49,15 +55,19 @@ export class OnlinePongScene extends Phaser.Scene {
   private socketService!: SocketServiceType;
   private unsubscribers: Array<() => void> = [];
 
-  private localPaddleX = 0;
+  private localPaddleX = ARENA_WIDTH / 2;
   private lastInputActiveAt = 0;
   private matchState: MatchState = 'lobby';
-  private shownTopScore = 0;
-  private shownBottomScore = 0;
+  private myScore = 0;
+  private opponentScore = 0;
 
   // For spotting bounces in the rendered ball path
   private lastBallVx = 0;
   private lastBallVy = 0;
+  private rallyHits = 0;
+  private topSpeed = 0;
+  private whooshedThisRally = false;
+  private hintVisible = false;
 
   private overlay: Phaser.GameObjects.Container | null = null;
   private overlayTimer: Phaser.Time.TimerEvent | null = null;
@@ -72,33 +82,41 @@ export class OnlinePongScene extends Phaser.Scene {
   }
 
   create() {
-    const { width, height } = this.scale;
     const config = this.registry.get('customConfig');
     this.role = config?.role ?? 'guest';
     this.flipped = this.role === 'host';
     this.socketService = config?.socketService;
 
+    setupSharpCamera(this);
     this.backdrop = new ArenaBackdrop(this);
-    this.backdrop.draw(width, height);
 
-    this.hud = new GameHud(this);
-    this.hud.resize(width, height);
+    this.hud = new GameHud(this, {
+      topName: config?.opponentName || 'Opponent',
+      bottomName: config?.playerName || 'You',
+      showPing: true,
+      faceTopPlayer: false,
+      showChangeDifficulty: false,
+      playAgainLabel: 'REMATCH',
+    });
+    this.hud.setScore(0, 0);
     this.effects = new VisualEffectsSystem(this);
 
-    this.opponentPaddle = new Paddle(this, width / 2, PONG_CONFIG.paddle.topOffset, PONG_CONFIG.colors.paddleTop);
+    this.opponentPaddle = new Paddle(this, ARENA_WIDTH / 2, PONG_CONFIG.paddle.topOffset, PONG_CONFIG.colors.paddleTop);
     this.myPaddle = new Paddle(
       this,
-      width / 2,
-      height - PONG_CONFIG.paddle.bottomOffset,
+      ARENA_WIDTH / 2,
+      ARENA_HEIGHT - PONG_CONFIG.paddle.bottomOffset,
       PONG_CONFIG.colors.paddleBottom,
     );
 
-    this.ball = new Ball(this, width / 2, height / 2);
+    this.ball = new Ball(this, ARENA_WIDTH / 2, ARENA_HEIGHT / 2);
+    // Each player starts out smashing their opponent's face; after that the
+    // ball wears the face of whoever conceded the last point.
+    this.ball.setFace(this.pickFace(FACE_OPPONENT, FACE_ME));
     this.ball.setVisible(false);
     this.effects.setBallVisible(false);
     this.effects.followBall();
 
-    this.localPaddleX = width / 2;
     this.snapshots = new ReconciliationBuffer();
     this.inputManager = new InputManager(this);
     this.netInput = new NetworkInputEmitter(this.socketService);
@@ -109,13 +127,17 @@ export class OnlinePongScene extends Phaser.Scene {
     // socket outlives the scene — its listeners must never fire into a dead HUD.
     this.events.once(Phaser.Scenes.Events.DESTROY, this.releaseExternal, this);
 
-    audioManager.playBGM();
+    audioManager.startMusic();
+
+    if (!hasSeenControlsHint()) {
+      this.hud.showHint(controlsHint(this.sys.game.device.input.touch));
+      this.hintVisible = true;
+    }
   }
 
   update(time: number, delta: number) {
-    const { width, height } = this.scale;
     const topY = PONG_CONFIG.paddle.topOffset;
-    const bottomY = height - PONG_CONFIG.paddle.bottomOffset;
+    const bottomY = ARENA_HEIGHT - PONG_CONFIG.paddle.bottomOffset;
 
     // ── Authoritative state (newest packet, no render delay) ──
     const latest = this.snapshots.getLatest();
@@ -137,7 +159,7 @@ export class OnlinePongScene extends Phaser.Scene {
       this.netInput.release();
     }
 
-    const moved = advancePaddle(this.localPaddleX, control, Math.min(delta, 100), width);
+    const moved = advancePaddle(this.localPaddleX, control, Math.min(delta, 100), ARENA_WIDTH);
     this.localPaddleX = moved.x;
     if (moved.moved !== 0 || control.direction !== 0) {
       this.lastInputActiveAt = time;
@@ -159,10 +181,16 @@ export class OnlinePongScene extends Phaser.Scene {
       ballVisible = view.state === 'playing' && !blocked;
       if (ballVisible) {
         const ballX = view.ball.x;
-        const ballY = this.flipped ? height - view.ball.y : view.ball.y;
+        const ballY = this.flipped ? ARENA_HEIGHT - view.ball.y : view.ball.y;
+        const speed = Math.hypot(view.ball.vx, view.ball.vy);
+        const heat = (speed - PONG_CONFIG.ball.initialSpeed) / (PONG_CONFIG.ball.maxSpeed - PONG_CONFIG.ball.initialSpeed);
+        this.topSpeed = Math.max(this.topSpeed, speed);
+
         this.ball.setPosition(ballX, ballY);
         this.ball.roll(view.ball.vx, delta);
-        this.detectBounces(view.ball.vx, view.ball.vy, ballX, ballY, height);
+        this.ball.setHeat(heat, time);
+        this.effects.setHeat(heat);
+        this.detectBounces(view.ball.vx, view.ball.vy, ballX, ballY, heat);
         this.effects.trackBall(ballX, ballY);
         this.effects.updateGlow(ballX, ballY, time);
       } else {
@@ -175,7 +203,7 @@ export class OnlinePongScene extends Phaser.Scene {
     this.effects.setBallVisible(ballVisible);
     this.myPaddle.setPosition(this.localPaddleX, bottomY);
 
-    this.hud.setNamePositions(this.opponentPaddle.getX(), this.localPaddleX, topY, bottomY);
+    this.hud.setNamePositions(this.opponentPaddle.getX(), this.localPaddleX);
     this.hud.setPing(this.socketService.ping);
   }
 
@@ -202,28 +230,56 @@ export class OnlinePongScene extends Phaser.Scene {
     }
   }
 
-  private detectBounces(vx: number, vy: number, x: number, y: number, height: number) {
+  private detectBounces(vx: number, vy: number, x: number, y: number, heat: number) {
     const vyFlipped = this.lastBallVy !== 0 && Math.sign(vy) !== Math.sign(this.lastBallVy);
     const vxFlipped = this.lastBallVx !== 0 && vx !== 0 && Math.sign(vx) !== Math.sign(this.lastBallVx);
 
     if (vyFlipped) {
-      this.effects.playPaddleHit(x, y);
-      (y > height / 2 ? this.myPaddle : this.opponentPaddle).playImpactFeedback();
+      const mine = y > ARENA_HEIGHT / 2;
+      this.rallyHits += 1;
+      this.effects.playPaddleHit(x, y, heat);
+      (mine ? this.myPaddle : this.opponentPaddle).playImpactFeedback(heat);
       this.ball.playHitStretch();
+      audioManager.playPaddleHit(heat, this.rallyHits);
+      if (mine && this.hintVisible) {
+        this.hintVisible = false;
+        this.hud.hideHint();
+        markControlsHintSeen();
+      }
+
+      if (this.rallyHits >= 5) this.hud.popText(`${this.rallyHits}`, x, y, mine);
+      if (RALLY_MILESTONES.includes(this.rallyHits)) {
+        this.hud.showBanner(`${this.rallyHits} RALLY! 🔥`);
+        audioManager.playRallyMilestone();
+      }
+      if (heat >= 0.85 && !this.whooshedThisRally) {
+        this.whooshedThisRally = true;
+        audioManager.playWhoosh();
+      }
     } else if (vxFlipped) {
       this.effects.playWallBounce(x, y);
+      audioManager.playWallBounce();
     }
 
     this.lastBallVx = vx;
     this.lastBallVy = vy;
   }
 
-  /** Scores arrive in server space (top = host); the HUD wants (opponent, me). */
+  /** Scores arrive in server space (top = host). */
   private applyScore(top: number, bottom: number) {
-    if (top === this.shownTopScore && bottom === this.shownBottomScore) return;
-    this.shownTopScore = top;
-    this.shownBottomScore = bottom;
-    this.hud.setScore(this.flipped ? bottom : top, this.flipped ? top : bottom);
+    const mine = this.flipped ? top : bottom;
+    const theirs = this.flipped ? bottom : top;
+    if (mine === this.myScore && theirs === this.opponentScore) return;
+    this.myScore = mine;
+    this.opponentScore = theirs;
+    this.hud.setScore(theirs, mine);
+  }
+
+  /** First texture that exists, or null for the plain ball. */
+  private pickFace(preferred: string, fallback: string): string | null {
+    if (this.textures.exists(preferred)) return preferred;
+    if (this.textures.exists(fallback)) return fallback;
+    return null;
   }
 
   // ─── Socket event wiring ───────────────────────────────────────────────────
@@ -243,6 +299,13 @@ export class OnlinePongScene extends Phaser.Scene {
 
       svc.onGameCountdown(({ value }) => {
         const isGo = value === 'GO';
+        if (value === '3') {
+          audioManager.duckMusic(true);
+          if (this.myScore === ONLINE_WINNING_SCORE - 1 || this.opponentScore === ONLINE_WINNING_SCORE - 1) {
+            this.hud.showBanner('MATCH POINT');
+            audioManager.playRallyMilestone();
+          }
+        }
         if (isGo) audioManager.playCountdownGo();
         else audioManager.playCountdownTick();
         this.hud.showCountdown(value, isGo);
@@ -253,14 +316,21 @@ export class OnlinePongScene extends Phaser.Scene {
         this.hud.hidePointMessage();
         this.hud.hideMessage();
         this.ball.resetRotation();
+        this.rallyHits = 0;
+        this.whooshedThisRally = false;
+        audioManager.duckMusic(false);
       }),
 
       svc.onGameRoundEnd(({ scoringSide }) => {
         const localSide = this.role === 'host' ? 'top' : 'bottom';
-        this.hud.showPointMessage(scoringSide === localSide ? '🎉 YOU SCORE' : '😤 OPPONENT SCORES');
-        this.hud.showMessage('POINT');
-        this.effects.playScoreExplosion(this.scale.width / 2, this.scale.height / 2);
-        this.cameras.main.flash(80, 0, 229, 255, false);
+        const iScored = scoringSide === localSide;
+        this.hud.showPointMessage(iScored ? '🎉 YOU SCORE' : '😤 OPPONENT SCORES');
+        audioManager.playScore(iScored);
+        const exitY = iScored ? PONG_CONFIG.arenaPadding : ARENA_HEIGHT - PONG_CONFIG.arenaPadding;
+        this.effects.playScoreExplosion(this.ball.getX(), exitY);
+        this.effects.flashScreen(255, 214, 236);
+        // Loser's face goes on the ball for the next point.
+        this.ball.setFace(iScored ? this.pickFace(FACE_OPPONENT, FACE_ME) : this.pickFace(FACE_ME, FACE_OPPONENT));
         // The ball jumps back to the centre — don't blend across that.
         this.snapshots.clear();
       }),
@@ -277,9 +347,11 @@ export class OnlinePongScene extends Phaser.Scene {
         this.matchOver = false;
         this.rematchVoted = false;
         this.matchState = 'countdown';
-        this.localPaddleX = this.scale.width / 2;
+        this.localPaddleX = ARENA_WIDTH / 2;
+        this.topSpeed = 0;
         this.snapshots.clear();
         this.hud.hideWinScreen();
+        this.ball.setFace(this.pickFace(FACE_OPPONENT, FACE_ME));
         this.applyScore(0, 0);
       }),
 
@@ -334,7 +406,7 @@ export class OnlinePongScene extends Phaser.Scene {
     });
 
     this.events.on('exit-match', () => {
-      audioManager.stopBGM();
+      audioManager.stopMusic();
       this.registry.get('customConfig')?.onExit?.();
     });
   }
@@ -348,19 +420,40 @@ export class OnlinePongScene extends Phaser.Scene {
     this.hud.hideMessage();
     this.hud.hidePointMessage();
     this.applyScore(stats.topScore, stats.bottomScore);
+    audioManager.duckMusic(false);
 
     const localWon = winner === this.role;
-    if (localWon) audioManager.playWin();
-    else audioManager.playLose();
+    const forfeit = reason === 'opponent_disconnected';
+    if (localWon) {
+      audioManager.playWin();
+      this.effects.celebrate();
+    } else {
+      audioManager.playLose();
+    }
 
-    // showWinScreen treats "bottom" as the local player.
-    this.hud.showWinScreen(localWon ? 'victory' : 'defeat', {
-      topScore: this.flipped ? stats.bottomScore : stats.topScore,
-      bottomScore: this.flipped ? stats.topScore : stats.bottomScore,
+    recordMatch(localWon, {
       longestRally: stats.longestRally,
-    }, reason === 'opponent_disconnected' ? 'Your opponent left the match.' : undefined);
+      topSpeed: toKmh(this.topSpeed),
+      difficulty: null,
+    });
 
-    if (reason === 'opponent_disconnected') {
+    const opponentName = this.registry.get('customConfig')?.opponentName || 'Opponent';
+    const lines = [
+      `${this.myScore} – ${this.opponentScore}`,
+      `Longest rally: ${stats.longestRally} hits`,
+      `Top speed: ${toKmh(this.topSpeed)} km/h`,
+    ];
+    if (forfeit) lines.unshift('Your opponent left the match.');
+
+    this.hud.showWinScreen({
+      victory: localWon,
+      title: localWon ? 'VICTORY' : 'DEFEAT',
+      subtitle: localWon ? `You beat ${opponentName}!` : `${opponentName} wins!`,
+      lines,
+      loserFaceKey: localWon ? this.pickFace(FACE_OPPONENT, PLAIN_BALL_KEY) : this.pickFace(FACE_ME, PLAIN_BALL_KEY),
+    });
+
+    if (forfeit) {
       // The server has already torn the room down.
       this.roomClosed = true;
       this.hud.setPlayAgainLabel('OPPONENT LEFT', false);
@@ -372,33 +465,33 @@ export class OnlinePongScene extends Phaser.Scene {
   private showOverlay(message: string, countdownSeconds?: number) {
     this.hideOverlay();
 
-    const { width, height } = this.scale;
     const font = 'Nunito, system-ui, sans-serif';
 
-    const bg = this.add.rectangle(0, 0, 380, 220, 0x0f0820, 0.92);
-    bg.setStrokeStyle(2, 0xffb7e1, 0.7);
-    bg.setRounded(20);
+    const bg = this.add.rectangle(0, 0, 440, 250, 0x2a1a55, 0.94);
+    bg.setStrokeStyle(3, 0xffb7e1, 0.8);
+    bg.setRounded(26);
 
-    const text = this.add.text(0, -54, message, {
+    const text = this.add.text(0, -62, message, {
       fontFamily: font,
-      fontSize: '18px',
+      fontSize: '22px',
+      fontStyle: '800',
       color: '#ffffff',
       align: 'center',
-      wordWrap: { width: 320 },
+      wordWrap: { width: 380 },
     });
     text.setOrigin(0.5);
 
-    const returnBg = this.add.rectangle(0, 54, 280, 42, 0xffffff, 1);
+    const returnBg = this.add.rectangle(0, 64, 300, 52, 0xffffff, 1);
     returnBg.setStrokeStyle(2, 0xff8dc7, 1);
-    returnBg.setRounded(21);
+    returnBg.setRounded(26);
     returnBg.setInteractive({ useHandCursor: true });
     returnBg.on('pointerdown', () => this.events.emit('exit-match'));
 
-    const returnText = this.add.text(0, 54, 'RETURN TO MENU', {
+    const returnText = this.add.text(0, 64, 'MAIN MENU', {
       fontFamily: font,
-      fontSize: '13px',
-      color: '#ff8dc7',
-      fontStyle: '800',
+      fontSize: '17px',
+      color: '#ff4fa3',
+      fontStyle: '900',
     });
     returnText.setOrigin(0.5);
     returnText.setLetterSpacing(1.5);
@@ -408,9 +501,10 @@ export class OnlinePongScene extends Phaser.Scene {
     if (countdownSeconds !== undefined) {
       let secondsLeft = countdownSeconds;
       const label = () => `Waiting ${secondsLeft}s for them to return…`;
-      const countdownText = this.add.text(0, -6, label(), {
+      const countdownText = this.add.text(0, -8, label(), {
         fontFamily: font,
-        fontSize: '14px',
+        fontSize: '17px',
+        fontStyle: '700',
         color: '#ffb7e1',
         align: 'center',
       });
@@ -428,7 +522,7 @@ export class OnlinePongScene extends Phaser.Scene {
       });
     }
 
-    this.overlay = this.add.container(width / 2, height / 2, children);
+    this.overlay = this.add.container(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, children);
     this.overlay.setDepth(100);
   }
 
@@ -441,7 +535,7 @@ export class OnlinePongScene extends Phaser.Scene {
 
   /** Detach from everything that lives longer than this scene. Safe to call twice. */
   private releaseExternal() {
-    audioManager.stopBGM();
+    audioManager.stopMusic();
     this.unsubscribers.forEach((off) => off());
     this.unsubscribers = [];
   }

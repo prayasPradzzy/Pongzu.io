@@ -11,9 +11,8 @@ import {
 import { ServerBallSimulator, SERVER_PONG_CONFIG, round1 } from '../game/ServerBallSimulator.js';
 import { ServerScoreManager } from '../game/ServerScoreManager.js';
 
-// Fixed arena dimensions — matches the client's Phaser game size
-const ARENA_WIDTH = 800;
-const ARENA_HEIGHT = 600;
+const ARENA_WIDTH = SERVER_PONG_CONFIG.arena.width;
+const ARENA_HEIGHT = SERVER_PONG_CONFIG.arena.height;
 const TICK_RATE_HZ = 60;
 const TICK_MS = 1000 / TICK_RATE_HZ;
 // Physics advances in small fixed slices so a late timer can never make the

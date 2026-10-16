@@ -1,20 +1,5 @@
 import { useFaceUploadStore } from '../../faceUpload/faceUploadStore';
-
-type SavedStats = {
-  wins: number;
-  losses: number;
-  matchesPlayed: number;
-  longestRally: number;
-  highestDifficultyBeaten: string;
-};
-
-function loadStats(): SavedStats {
-  try {
-    const raw = localStorage.getItem('facepong-stats');
-    if (raw) return JSON.parse(raw);
-  } catch { /* noop */ }
-  return { wins: 0, losses: 0, matchesPlayed: 0, longestRally: 0, highestDifficultyBeaten: '' };
-}
+import { loadStats } from '../../stats/statsStore';
 
 export function StatsScreen() {
   const { setUiStage } = useFaceUploadStore();
@@ -49,8 +34,16 @@ export function StatsScreen() {
             <span className="stats-card__label">Longest Rally</span>
           </div>
           <div className="stats-card">
-            <span className="stats-card__value">{stats.highestDifficultyBeaten || '—'}</span>
+            <span className="stats-card__value stats-card__value--text">{stats.highestDifficultyBeaten || '—'}</span>
             <span className="stats-card__label">Best Difficulty</span>
+          </div>
+          <div className="stats-card">
+            <span className="stats-card__value">{stats.topSpeed ? `${stats.topSpeed}` : '—'}</span>
+            <span className="stats-card__label">Top Speed km/h</span>
+          </div>
+          <div className="stats-card">
+            <span className="stats-card__value">{stats.onlineWins}</span>
+            <span className="stats-card__label">Online Wins</span>
           </div>
         </div>
 

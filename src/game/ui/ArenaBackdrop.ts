@@ -1,89 +1,69 @@
 import Phaser from 'phaser';
 
 import { PONG_CONFIG } from '../config/pongConfig';
+import { ARENA_HEIGHT, ARENA_WIDTH } from '../utils/sceneSetup';
 
-/** The static arena art shared by the CPU and online scenes. */
+/** The static arena art shared by every match scene. */
 export class ArenaBackdrop {
-  private readonly arena: Phaser.GameObjects.Graphics;
-  private readonly vignette: Phaser.GameObjects.Graphics;
-  private readonly frame: Phaser.GameObjects.Graphics;
-  private readonly sparkles: Phaser.GameObjects.Graphics;
-  private readonly clouds: Phaser.GameObjects.Graphics;
-  private readonly petals: Phaser.GameObjects.Graphics;
+  private readonly layers: Phaser.GameObjects.Graphics[] = [];
 
   constructor(scene: Phaser.Scene) {
     scene.cameras.main.setBackgroundColor(PONG_CONFIG.colors.background);
-    this.arena = scene.add.graphics();
-    this.vignette = scene.add.graphics();
-    this.frame = scene.add.graphics();
-    this.sparkles = scene.add.graphics();
-    this.clouds = scene.add.graphics();
-    this.petals = scene.add.graphics();
-  }
 
-  draw(width: number, height: number) {
+    const width = ARENA_WIDTH;
+    const height = ARENA_HEIGHT;
     const hex = (value: string) => Phaser.Display.Color.HexStringToColor(value).color;
+    const add = () => {
+      const g = scene.add.graphics();
+      g.setDepth(0);
+      this.layers.push(g);
+      return g;
+    };
 
-    this.arena.clear();
-    this.arena.fillGradientStyle(
+    // Vertical gradient (same colour across each row, so no diagonal seam).
+    const arena = add();
+    arena.fillGradientStyle(
       hex(PONG_CONFIG.colors.arenaTop),
       hex(PONG_CONFIG.colors.arenaTop),
-      hex(PONG_CONFIG.colors.arenaMid),
+      hex(PONG_CONFIG.colors.arenaBottom),
       hex(PONG_CONFIG.colors.arenaBottom),
       1,
     );
-    this.arena.fillRoundedRect(0, 0, width, height, 36);
+    arena.fillRect(0, 0, width, height);
 
-    this.vignette.clear();
-    this.vignette.fillStyle(0xffffff, 0.08);
-    this.vignette.fillRoundedRect(12, 12, width - 24, height - 24, 28);
+    // Soft tinted halves: the opponent's side is lilac, yours is pink.
+    const halves = add();
+    halves.fillStyle(PONG_CONFIG.colors.paddleTop, 0.05);
+    halves.fillRect(0, 0, width, height / 2);
+    halves.fillStyle(PONG_CONFIG.colors.paddleBottom, 0.05);
+    halves.fillRect(0, height / 2, width, height / 2);
 
+    // Polka dots for a playful texture
+    const dots = add();
+    dots.fillStyle(0xffffff, 0.55);
+    for (let y = 40; y < height; y += 56) {
+      for (let x = (y / 56) % 2 === 0 ? 28 : 56; x < width; x += 56) {
+        dots.fillCircle(x, y, 2.2);
+      }
+    }
+
+    // Frame
     const pad = PONG_CONFIG.arenaPadding;
-    this.frame.clear();
-    this.frame.lineStyle(2, PONG_CONFIG.colors.frame, 0.8);
-    this.frame.strokeRoundedRect(pad, pad, width - pad * 2, height - pad * 2, 28);
-    this.frame.lineStyle(1, PONG_CONFIG.colors.cyan, 0.18);
-    this.frame.strokeRoundedRect(pad + 10, pad + 10, width - (pad + 10) * 2, height - (pad + 10) * 2, 22);
-    // Centre line
-    this.frame.lineStyle(2, PONG_CONFIG.colors.frame, 0.28);
-    for (let x = pad + 24; x < width - pad - 24; x += 28) {
-      this.frame.lineBetween(x, height / 2, x + 14, height / 2);
+    const frame = add();
+    frame.lineStyle(4, PONG_CONFIG.colors.frame, 0.9);
+    frame.strokeRoundedRect(pad, pad, width - pad * 2, height - pad * 2, 30);
+    frame.lineStyle(2, 0xffffff, 0.9);
+    frame.strokeRoundedRect(pad + 6, pad + 6, width - (pad + 6) * 2, height - (pad + 6) * 2, 24);
+
+    // Centre line + circle
+    frame.lineStyle(3, PONG_CONFIG.colors.frame, 0.45);
+    for (let x = pad + 20; x < width - pad - 20; x += 30) {
+      frame.lineBetween(x, height / 2, x + 16, height / 2);
     }
-
-    this.sparkles.clear();
-    this.sparkles.fillStyle(0xffffff, 1);
-    const sparkleCount = Math.max(16, Math.floor((width * height) / 180000));
-    for (let i = 0; i < sparkleCount; i += 1) {
-      this.sparkles.fillCircle(
-        Phaser.Math.Between(40, width - 40),
-        Phaser.Math.Between(56, height - 56),
-        Phaser.Math.Between(1, 3),
-      );
-    }
-    this.sparkles.setAlpha(0.12);
-
-    this.clouds.clear();
-    this.clouds.fillStyle(0xffffff, 0.08);
-    const cloudY = height * 0.18;
-    this.clouds.fillEllipse(width * 0.18, cloudY, 160, 42);
-    this.clouds.fillEllipse(width * 0.27, cloudY + 16, 220, 52);
-    this.clouds.fillEllipse(width * 0.76, cloudY + 6, 180, 44);
-    this.clouds.fillEllipse(width * 0.68, cloudY + 22, 240, 56);
-
-    this.petals.clear();
-    this.petals.fillStyle(0xffb7e1, 0.11);
-    this.petals.fillEllipse(width * 0.1, height * 0.78, 18, 8);
-    this.petals.fillEllipse(width * 0.82, height * 0.22, 20, 9);
-    this.petals.fillEllipse(width * 0.42, height * 0.14, 16, 7);
-    this.petals.fillEllipse(width * 0.58, height * 0.85, 18, 8);
+    frame.strokeCircle(width / 2, height / 2, 70);
   }
 
   destroy() {
-    this.arena.destroy();
-    this.vignette.destroy();
-    this.frame.destroy();
-    this.sparkles.destroy();
-    this.clouds.destroy();
-    this.petals.destroy();
+    this.layers.forEach((layer) => layer.destroy());
   }
 }

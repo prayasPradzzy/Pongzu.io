@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFaceUploadStore } from '../faceUploadStore';
+import { faceDetectorService } from '../FaceDetectorService';
 
 type FaceCropEditorProps = {
   onConfirm: (croppedUrl: string) => void;
@@ -16,6 +17,14 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
+  // Cut the head out of the background for a floating-sticker ball.
+  const [cutout, setCutout] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  // Fetch the background-removal model while the player is still cropping.
+  useEffect(() => {
+    faceDetectorService.prefetchSegmenter();
+  }, []);
 
   const VIEWPORT_SIZE = 360;
   const CROP_RADIUS = 100;
@@ -152,8 +161,8 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
   };
 
   // Perform actual crop extraction
-  const handleConfirm = () => {
-    if (!imgElement) return;
+  const handleConfirm = async () => {
+    if (!imgElement || busy) return;
 
     // Create a 256x256 target canvas for high quality avatar
     const targetCanvas = document.createElement('canvas');
@@ -202,16 +211,30 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
       256
     );
 
+    if (cutout) {
+      setBusy(true);
+      try {
+        const sticker = await faceDetectorService.cutOutHead(targetCanvas);
+        if (sticker) {
+          onConfirm(sticker);
+          return;
+        }
+      } catch {
+        // Model unavailable (offline, blocked) — fall back to the plain photo.
+      } finally {
+        setBusy(false);
+      }
+    }
+
     // JPEG keeps the avatar around 15–25 KB, small enough to send to the
     // opponent and to remember in localStorage. (PNG photos are ~10x larger.)
-    const dataUrl = targetCanvas.toDataURL('image/jpeg', 0.86);
-    onConfirm(dataUrl);
+    onConfirm(targetCanvas.toDataURL('image/jpeg', 0.86));
   };
 
   return (
     <div className="crop-editor-overlay">
       <div className="crop-editor">
-        <h2 className="crop-editor__title">Crop Your Face Ball 🤪</h2>
+        <h2 className="crop-editor__title">Line Up Your Face 🤪</h2>
         <p className="crop-editor__subtitle">
           Drag the photo to center your face inside the circle. Use the slider to zoom.
         </p>
@@ -248,12 +271,17 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
           />
         </div>
 
+        <label className="crop-editor__cutout">
+          <input type="checkbox" checked={cutout} onChange={(e) => setCutout(e.target.checked)} />
+          ✂️ Remove background (sticker head)
+        </label>
+
         <div className="crop-editor__actions">
-          <button type="button" className="face-upload__ghost-button" onClick={onCancel}>
+          <button type="button" className="face-upload__ghost-button" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className="face-upload__button" onClick={handleConfirm}>
-            Confirm Crop
+          <button type="button" className="face-upload__button" onClick={handleConfirm} disabled={busy}>
+            {busy ? 'Cutting out…' : 'Use This Face'}
           </button>
         </div>
       </div>

@@ -5,6 +5,8 @@ import { MultiplayerMenu } from './features/menu/components/MultiplayerMenu';
 import { CreateSetupScreen } from './features/menu/components/CreateSetupScreen';
 import { JoinSetupScreen } from './features/menu/components/JoinSetupScreen';
 import { StatsScreen } from './features/menu/components/StatsScreen';
+import { SettingsScreen } from './features/menu/components/SettingsScreen';
+import { ProfileScreen } from './features/menu/components/ProfileScreen';
 import { LobbyScreen } from './features/multiplayer/components/LobbyScreen';
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
@@ -51,11 +53,17 @@ function AppContent() {
 
     // Browsers only allow sound after a user gesture.
     const unlock = () => audioManager.unlock();
+    // A soft tick on every menu button press.
+    const click = (event: MouseEvent) => {
+      if ((event.target as Element | null)?.closest?.('button')) audioManager.playClick();
+    };
     window.addEventListener('pointerdown', unlock);
     window.addEventListener('keydown', unlock);
+    window.addEventListener('click', click);
     return () => {
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
+      window.removeEventListener('click', click);
     };
   }, []);
 
@@ -69,13 +77,15 @@ function AppContent() {
         {uiStage === 'joinSetup' && <JoinSetupScreen />}
         {uiStage === 'lobby' && <LobbyScreen />}
         {uiStage === 'stats' && <StatsScreen />}
+        {uiStage === 'settings' && <SettingsScreen />}
+        {uiStage === 'profile' && <ProfileScreen />}
         {uiStage === 'playing' && (
           <Suspense fallback={<div className="phaser-stage phaser-stage--loading">Loading game…</div>}>
             <PhaserStage />
           </Suspense>
         )}
       </div>
-      <MuteButton />
+      {uiStage === 'playing' && <MuteButton />}
     </main>
   );
 }

@@ -13,30 +13,32 @@ export type DifficultyPreset = {
 };
 
 export const DIFFICULTY_PRESETS: Record<Difficulty, DifficultyPreset> = {
-  easy: { label: 'Easy', reactionDelay: 320, speedMultiplier: 0.55, aimError: 64, aggression: 0 },
-  medium: { label: 'Medium', reactionDelay: 220, speedMultiplier: 0.72, aimError: 40, aggression: 0.25 },
-  hard: { label: 'Hard', reactionDelay: 140, speedMultiplier: 0.88, aimError: 22, aggression: 0.45 },
-  nightmare: { label: 'Nightmare', reactionDelay: 90, speedMultiplier: 0.96, aimError: 12, aggression: 0.6 },
+  easy: { label: 'Easy', reactionDelay: 340, speedMultiplier: 0.5, aimError: 60, aggression: 0 },
+  medium: { label: 'Medium', reactionDelay: 250, speedMultiplier: 0.6, aimError: 44, aggression: 0.25 },
+  hard: { label: 'Hard', reactionDelay: 190, speedMultiplier: 0.72, aimError: 30, aggression: 0.45 },
+  nightmare: { label: 'Nightmare', reactionDelay: 140, speedMultiplier: 0.82, aimError: 20, aggression: 0.6 },
 };
 
 // Gameplay numbers are mirrored in server/src/game/ServerBallSimulator.ts —
 // change both together or online and CPU matches will feel different.
 export const PONG_CONFIG = {
-  arenaPadding: 28,
+  // Tall, phone-shaped arena (logical pixels). The server uses the same size.
+  arena: { width: 600, height: 1000 },
+  arenaPadding: 24,
   winningScore: 7,
   paddle: {
-    width: 132,
-    height: 18,
-    speed: 720,
-    topOffset: 56,
-    bottomOffset: 56,
+    width: 120,
+    height: 20,
+    speed: 760,
+    topOffset: 92,
+    bottomOffset: 92,
   },
   ball: {
-    radius: 18,
-    initialSpeed: 500,
-    speedBoost: 32,
+    radius: 20,
+    initialSpeed: 880,
+    speedBoost: 60,
     boostEveryHits: 2,
-    maxSpeed: 1040,
+    maxSpeed: 1800,
     // How much of the bounce angle comes from where the ball meets the paddle.
     impactInfluence: 0.72,
     // Extra angle added when the paddle is moving at impact ("spin").
@@ -46,20 +48,22 @@ export const PONG_CONFIG = {
   countdownSeconds: 3,
   pointPauseMs: 1200,
   colors: {
-    background: '#F8F1FF',
-    arenaTop: '#F5E8FF',
-    arenaMid: '#EFD9FF',
-    arenaBottom: '#FDEBFF',
-    frame: 0xc8b6ff,
-    glow: 0xffffff,
+    background: '#F3EAFF',
+    arenaTop: '#F4EBFF',
+    arenaMid: '#F1E4FF',
+    arenaBottom: '#FDE8F5',
+    frame: 0xa98bff,
+    glow: 0xffd6ec,
     ball: 0xffffff,
-    paddleTop: 0xc8b6ff,
-    paddleBottom: 0xffb7e1,
-    text: '#7B5CE6',
-    mutedText: '#9A84E8',
+    ballOutline: 0x6a4be0,
+    paddleTop: 0x7c5cff,
+    paddleBottom: 0xff4fa3,
+    text: '#5B3FD6',
+    mutedText: '#8F78E8',
     flash: 0xffffff,
-    cyan: 0xc8b6ff,
-    pink: 0xff8dc7,
+    cyan: 0xb9a4ff,
+    pink: 0xff6fb5,
+    hot: 0xff5a5a,
   },
 } as const;
 

@@ -2,21 +2,23 @@ import type { ServeDirection, PaddleSide } from '../protocol/events.js';
 
 // Mirror of pongConfig.ts — no Phaser import possible on server
 export const SERVER_PONG_CONFIG = {
-  arenaPadding: 28,
+  // Tall, phone-shaped arena. Must match PONG_CONFIG.arena on the client.
+  arena: { width: 600, height: 1000 },
+  arenaPadding: 24,
   winningScore: 7,
   paddle: {
-    width: 132,
-    height: 18,
-    speed: 720,
-    topOffset: 56,
-    bottomOffset: 56,
+    width: 120,
+    height: 20,
+    speed: 760,
+    topOffset: 92,
+    bottomOffset: 92,
   },
   ball: {
-    radius: 18,
-    initialSpeed: 500,
-    speedBoost: 32,
+    radius: 20,
+    initialSpeed: 880,
+    speedBoost: 60,
     boostEveryHits: 2,
-    maxSpeed: 1040,
+    maxSpeed: 1800,
     // How much of the bounce angle comes from where the ball meets the paddle.
     impactInfluence: 0.72,
     // Extra angle added when the paddle is moving at impact ("spin").

@@ -104,7 +104,7 @@ function extrapolate(snapshot: StateSnapshot, aheadMs: number): StateSnapshot {
   const dt = aheadMs / 1000;
   const radius = PONG_CONFIG.ball.radius;
   const left = PONG_CONFIG.arenaPadding + radius;
-  const right = 800 - PONG_CONFIG.arenaPadding - radius;
+  const right = PONG_CONFIG.arena.width - PONG_CONFIG.arenaPadding - radius;
 
   return {
     ...snapshot,

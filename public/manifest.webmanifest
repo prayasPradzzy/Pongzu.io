@@ -1,0 +1,16 @@
+{
+  "name": "Pongzu — Face Pong",
+  "short_name": "Pongzu",
+  "description": "Put your face on the ball and smash your friends. Free browser Pong with online multiplayer.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3EAFF",
+  "theme_color": "#7C5CFF",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

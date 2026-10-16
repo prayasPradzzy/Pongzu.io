@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useFaceUploadStore } from '../faceUploadStore';
 import { FaceCropEditor } from './FaceCropEditor';
+import { CameraCapture } from './CameraCapture';
 import { faceDetectorService } from '../FaceDetectorService';
+import { FACE_PACK, renderEmojiFace } from '../facePack';
+
+const INPUT_ID = 'optional-face-upload-input';
 
 /**
- * Self-contained optional face-ball upload widget.
- * Renders inline within any setup screen. Handles:
- *   file pick → face detection → crop editor modal → face-ball preview
+ * Face-ball picker, rendered inline on profile and setup screens:
+ *   selfie camera / photo upload → face detection → crop (+ background removal)
+ *   or one tap on a built-in cartoon face.
  *
- * When a face is cropped, faceBallMode is automatically enabled.
- * Does NOT change uiStage. All state flows through the global store.
+ * All state flows through the global store; it never changes uiStage.
  */
 export function OptionalFaceUpload() {
   const {
@@ -24,8 +27,9 @@ export function OptionalFaceUpload() {
 
   // previewUrl of the image whose detection pass has finished (found a face or not)
   const [detectedFor, setDetectedFor] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [changing, setChanging] = useState(false);
   const isDetecting = !!image && showCropEditor && detectedFor !== image.previewUrl;
-  const inputId = 'optional-face-upload-input';
 
   // Auto-run face detection when a new image arrives
   useEffect(() => {
@@ -41,26 +45,20 @@ export function OptionalFaceUpload() {
       try {
         const result = await faceDetectorService.detect(img);
         if (cancelled) return;
-        if (result.detections && result.detections.length > 0) {
-          const face = result.detections[0];
-          const box = face.boundingBox;
-          if (box) {
-            const avatarScaleX = 1.8;
-            const avatarScaleY = 2.1;
-            const expandedWidth = box.width * avatarScaleX;
-            const expandedHeight = box.height * avatarScaleY;
-            setDetection({
-              box: {
-                x: box.originX - (expandedWidth - box.width) / 2,
-                y: box.originY - (expandedHeight - box.height) / 2,
-                width: expandedWidth,
-                height: expandedHeight,
-              },
-              confidence: face.categories?.[0]?.score ?? 0,
-            });
-          } else {
-            setDetection(null);
-          }
+        const face = result.detections?.[0];
+        const box = face?.boundingBox;
+        if (box) {
+          const expandedWidth = box.width * 1.8;
+          const expandedHeight = box.height * 2.1;
+          setDetection({
+            box: {
+              x: box.originX - (expandedWidth - box.width) / 2,
+              y: box.originY - (expandedHeight - box.height) / 2,
+              width: expandedWidth,
+              height: expandedHeight,
+            },
+            confidence: face.categories?.[0]?.score ?? 0,
+          });
         } else {
           setDetection(null);
         }
@@ -80,107 +78,127 @@ export function OptionalFaceUpload() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) selectImage(file);
+    if (file) {
+      setChanging(false);
+      selectImage(file);
+    }
     e.target.value = '';
   };
 
-  const handleCropConfirm = (croppedUrl: string) => {
-    setCroppedAvatarUrl(croppedUrl);
-    // faceBallMode is auto-enabled by the store when cropped avatar is set
+  const pickEmoji = (emoji: string) => {
+    setChanging(false);
+    setCroppedAvatarUrl(renderEmojiFace(emoji));
   };
 
-  const handleCropCancel = () => {
-    clearImage();
-  };
+  const fileInput = (
+    <input id={INPUT_ID} className="face-upload__input" type="file" accept="image/*" onChange={handleFileChange} />
+  );
 
-  // ─── No face yet: show upload button ───────────────────────────────────
-  if (!croppedAvatarUrl && !showCropEditor) {
+  // ─── Camera ────────────────────────────────────────────────────────────
+  if (cameraOpen) {
     return (
-      <div className="ofu">
-        <button
-          type="button"
-          className="ofu__add-btn"
-          onClick={() => document.getElementById(inputId)?.click()}
-        >
-          <span className="ofu__add-icon">🤪</span>
-          <span className="ofu__add-text">
-            <strong>Add Face Ball</strong>
-            <small>Optional — your face becomes the ball!</small>
-          </span>
-        </button>
-        <input
-          id={inputId}
-          className="face-upload__input"
-          type="file"
-          accept="image/*"
-          onChange={handleFileChange}
-        />
-      </div>
+      <CameraCapture
+        onCancel={() => setCameraOpen(false)}
+        onCapture={(photo) => {
+          setCameraOpen(false);
+          setChanging(false);
+          selectImage(photo);
+        }}
+      />
     );
   }
 
-  // ─── Detecting / Crop editor open ──────────────────────────────────────
-  if (showCropEditor) {
+  // ─── Detecting / crop editor ───────────────────────────────────────────
+  if (showCropEditor && image) {
     if (isDetecting) {
       return (
         <div className="ofu ofu--loading">
           <div className="ofu__spinner" />
-          <span>Detecting face…</span>
+          <span>Finding your face…</span>
         </div>
       );
     }
-    if (image) {
-      return (
-        <>
-          <FaceCropEditor onConfirm={handleCropConfirm} onCancel={handleCropCancel} />
-          <input
-            id={inputId}
-            className="face-upload__input"
-            type="file"
-            accept="image/*"
-            onChange={handleFileChange}
-          />
-        </>
-      );
-    }
+    return (
+      <>
+        <FaceCropEditor onConfirm={(url) => setCroppedAvatarUrl(url)} onCancel={clearImage} />
+        {fileInput}
+      </>
+    );
   }
 
-  // ─── Face added: show preview ──────────────────────────────────────────
+  // ─── Face chosen: preview ──────────────────────────────────────────────
+  if (croppedAvatarUrl && !changing) {
+    const isPhoto = croppedAvatarUrl.startsWith('data:image/jpeg');
+    return (
+      <div className="ofu ofu--preview">
+        <div className="ofu__face-ring">
+          <img
+            src={croppedAvatarUrl}
+            alt="Your face ball"
+            className={`ofu__face-img ${isPhoto ? '' : 'ofu__face-img--cutout'}`}
+          />
+        </div>
+
+        <div className="ofu__preview-info">
+          <span className="ofu__preview-label">🤪 Face ball ready</span>
+          <span className="ofu__preview-sub">Your opponent has to smash it.</span>
+        </div>
+
+        <div className="ofu__preview-actions">
+          <button type="button" className="ofu__small-btn" onClick={() => setChanging(true)}>
+            Change
+          </button>
+          <button type="button" className="ofu__small-btn ofu__small-btn--danger" onClick={clearImage}>
+            Remove
+          </button>
+        </div>
+        {fileInput}
+      </div>
+    );
+  }
+
+  // ─── Picker ────────────────────────────────────────────────────────────
   return (
-    <div className="ofu ofu--preview">
-      <div className="ofu__face-ring">
-        <img src={croppedAvatarUrl!} alt="Face ball" className="ofu__face-img" />
-      </div>
-
-      <div className="ofu__preview-info">
-        <span className="ofu__preview-label">🤪 Face Added ✓</span>
-        <span className="ofu__preview-sub">Your face will be the ball!</span>
-      </div>
-
-      <div className="ofu__preview-actions">
-        <button
-          type="button"
-          className="ofu__small-btn"
-          onClick={() => document.getElementById(inputId)?.click()}
-        >
-          Change Face
+    <div className="face-picker">
+      <span className="setup__label">Face Ball</span>
+      <div className="face-picker__actions">
+        <button type="button" className="face-picker__action" onClick={() => setCameraOpen(true)}>
+          📷 Take a selfie
         </button>
         <button
           type="button"
-          className="ofu__small-btn ofu__small-btn--danger"
-          onClick={clearImage}
+          className="face-picker__action"
+          onClick={() => document.getElementById(INPUT_ID)?.click()}
         >
-          Remove Face
+          🖼️ Upload photo
         </button>
       </div>
 
-      <input
-        id={inputId}
-        className="face-upload__input"
-        type="file"
-        accept="image/*"
-        onChange={handleFileChange}
-      />
+      <span className="face-picker__pack-label">…or pick a face</span>
+      <div className="face-picker__pack">
+        {FACE_PACK.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className="face-picker__emoji"
+            onClick={() => pickEmoji(emoji)}
+            aria-label={`Use ${emoji} as your face`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+
+      <p className="face-picker__privacy">
+        🔒 Your photo is processed on this device. It's only shared with the opponent you're playing online.
+      </p>
+
+      {changing && (
+        <button type="button" className="ofu__small-btn" onClick={() => setChanging(false)}>
+          Keep current face
+        </button>
+      )}
+      {fileInput}
     </div>
   );
 }
