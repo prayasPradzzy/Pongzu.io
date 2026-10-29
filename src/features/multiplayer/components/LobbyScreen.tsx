@@ -187,7 +187,6 @@ export function LobbyScreen() {
   return (
     <section className="face-upload">
       <div className="face-upload__panel lobby-panel">
-        <p className="face-upload__eyebrow">Online Multiplayer</p>
 
         {phase === 'connecting' && (
           <>
@@ -213,7 +212,7 @@ export function LobbyScreen() {
               className="face-upload__start-button"
               onClick={() => leaveRoom(isHost ? 'createSetup' : 'joinSetup')}
             >
-              {isHost ? 'Try Again' : 'Try Another Code'}
+              {isHost ? 'Try again' : 'Try another code'}
             </button>
           </>
         )}
@@ -221,16 +220,16 @@ export function LobbyScreen() {
         {/* Waiting for guest — host view */}
         {phase === 'waiting-guest' && (
           <>
-            <h1 className="face-upload__title">Room Created!</h1>
+            <h1 className="face-upload__title">Room created</h1>
             <p className="face-upload__copy">Send this code or the invite link to your opponent.</p>
             <div className="lobby-room-code-wrap">
               <div className="lobby-room-code">{roomCode ?? '…'}</div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div className="lobby-copy-row">
                 <button type="button" className="lobby-copy-btn" onClick={handleCopyCode}>
-                  {copied === 'code' ? '✓ Copied Code!' : '📋 Copy Code'}
+                  {copied === 'code' ? 'Code copied' : 'Copy code'}
                 </button>
                 <button type="button" className="lobby-copy-btn" onClick={handleShareLink}>
-                  {copied === 'link' ? '✓ Copied Link!' : '🔗 Share Invite Link'}
+                  {copied === 'link' ? 'Link copied' : 'Share invite link'}
                 </button>
               </div>
             </div>
@@ -246,7 +245,7 @@ export function LobbyScreen() {
         {(phase === 'both-present' || phase === 'ready-waiting' || phase === 'starting') && (
           <>
             <h1 className="face-upload__title">
-              {phase === 'starting' ? `Get Ready! ${countdown ?? ''}` : 'Room Ready!'}
+              {phase === 'starting' ? `Starting in ${countdown ?? '…'}` : 'Both players are here'}
             </h1>
 
             {roomCode && (
@@ -262,16 +261,16 @@ export function LobbyScreen() {
                   {croppedAvatarUrl ? (
                     <img src={croppedAvatarUrl} alt="You" className="lobby-player-avatar" />
                   ) : (
-                    <div className="lobby-player-avatar-placeholder">👤</div>
+                    <div className="lobby-player-avatar-placeholder" />
                   )}
                 </div>
                 <div className="lobby-player-name">{playerName || 'You'}</div>
                 <div className={`lobby-ready-chip ${localReady ? 'ready' : ''}`}>
-                  {localReady ? '✓ Ready' : 'Not ready'}
+                  {localReady ? 'Ready' : 'Not ready'}
                 </div>
               </div>
 
-              <div className="lobby-vs">VS</div>
+              <div className="lobby-vs" aria-hidden="true" />
 
               {/* Opponent */}
               <div className="lobby-player-card">
@@ -279,19 +278,19 @@ export function LobbyScreen() {
                   {opponentAvatarUrl ? (
                     <img src={opponentAvatarUrl} alt="Opponent" className="lobby-player-avatar" />
                   ) : (
-                    <div className="lobby-player-avatar-placeholder">👤</div>
+                    <div className="lobby-player-avatar-placeholder" />
                   )}
                 </div>
                 <div className="lobby-player-name">{opponentName || 'Opponent'}</div>
                 <div className={`lobby-ready-chip ${opponentReady ? 'ready' : ''}`}>
-                  {opponentReady ? '✓ Ready' : 'Not ready'}
+                  {opponentReady ? 'Ready' : 'Not ready'}
                 </div>
               </div>
             </div>
 
             {phase === 'both-present' && (
               <button type="button" className="face-upload__start-button" onClick={handleReady}>
-                I'm Ready! →
+                I'm ready
               </button>
             )}
 
@@ -305,7 +304,7 @@ export function LobbyScreen() {
         )}
 
         <button type="button" className="face-upload__ghost-button lobby-leave-btn" onClick={handleLeave}>
-          {phase === 'error' ? '← Back to Menu' : '← Leave Room'}
+          {phase === 'error' ? 'Back to menu' : 'Leave room'}
         </button>
       </div>
     </section>

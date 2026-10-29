@@ -3,10 +3,10 @@ import { OptionalFaceUpload } from '../../faceUpload/components/OptionalFaceUplo
 import type { FaceUploadState } from '../../faceUpload/faceUploadTypes';
 
 const DIFFICULTIES: Array<{ key: FaceUploadState['difficulty']; label: string; desc: string }> = [
-  { key: 'easy',      label: '🟢 Easy',      desc: 'Relaxed pace' },
-  { key: 'medium',    label: '🟡 Medium',    desc: 'Fair challenge' },
-  { key: 'hard',      label: '🔴 Hard',      desc: 'Fast & precise' },
-  { key: 'nightmare', label: '💀 Nightmare', desc: 'No mercy' },
+  { key: 'easy',      label: 'Easy',      desc: 'Relaxed pace' },
+  { key: 'medium',    label: 'Medium',    desc: 'Fair challenge' },
+  { key: 'hard',      label: 'Hard',      desc: 'Fast and precise' },
+  { key: 'nightmare', label: 'Nightmare', desc: 'No mercy' },
 ];
 
 export function CpuSetupScreen() {
@@ -28,12 +28,11 @@ export function CpuSetupScreen() {
   return (
     <section className="face-upload">
       <div className="face-upload__panel setup-panel">
-        <p className="face-upload__eyebrow">Single Player</p>
         <h1 className="face-upload__title setup__title">Play vs CPU</h1>
 
         {/* Name input */}
         <div className="setup__field">
-          <label className="setup__label" htmlFor="cpu-name">Your Name</label>
+          <label className="setup__label" htmlFor="cpu-name">Your name</label>
           <input
             id="cpu-name"
             className="setup__input"
@@ -75,7 +74,7 @@ export function CpuSetupScreen() {
           onClick={handleStart}
           disabled={!playerName.trim()}
         >
-          Start Match →
+          Start match
         </button>
 
         <button
@@ -83,7 +82,7 @@ export function CpuSetupScreen() {
           className="face-upload__ghost-button setup__back"
           onClick={() => setUiStage('mainMenu')}
         >
-          ← Back
+          Back
         </button>
       </div>
     </section>

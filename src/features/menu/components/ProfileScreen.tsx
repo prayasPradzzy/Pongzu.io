@@ -8,12 +8,11 @@ export function ProfileScreen() {
   return (
     <section className="face-upload">
       <div className="face-upload__panel setup-panel">
-        <p className="face-upload__eyebrow">Your Profile</p>
         <h1 className="face-upload__title setup__title">Who's playing?</h1>
         <p className="face-upload__copy">Your face becomes the ball when your opponent has to hit it.</p>
 
         <div className="setup__field">
-          <label className="setup__label" htmlFor="profile-name">Your Name</label>
+          <label className="setup__label" htmlFor="profile-name">Your name</label>
           <input
             id="profile-name"
             className="setup__input"

@@ -5,36 +5,18 @@ export function MultiplayerMenu() {
 
   return (
     <section className="face-upload">
-      <div className="face-upload__panel main-menu-panel">
-        <p className="face-upload__eyebrow">Online Multiplayer</p>
-        <h1 className="face-upload__title main-menu__title" style={{ fontSize: 'clamp(1.6rem, 3.5vw, 2.4rem)' }}>
-          Play with a friend
-        </h1>
-        <p className="face-upload__copy">Create a room and share the code, or join an existing one.</p>
+      <div className="face-upload__panel setup-panel">
+        <h1 className="face-upload__title setup__title">Play a friend online</h1>
+        <p className="face-upload__copy">Open a room and send your friend the code, or type in the code they sent you.</p>
 
-        <div className="main-menu__buttons">
-          <button
-            type="button"
-            className="main-menu__btn main-menu__btn--primary"
-            onClick={() => setUiStage('createSetup')}
-          >
-            <span className="main-menu__btn-icon">🔑</span>
-            <span className="main-menu__btn-label">
-              <strong>Create Room</strong>
-              <small>Host a game and share a code</small>
-            </span>
+        <div className="choice-list">
+          <button type="button" className="choice" onClick={() => setUiStage('createSetup')}>
+            <strong>Create a room</strong>
+            <span>You get a code to share</span>
           </button>
-
-          <button
-            type="button"
-            className="main-menu__btn main-menu__btn--accent"
-            onClick={() => setUiStage('joinSetup')}
-          >
-            <span className="main-menu__btn-icon">🚀</span>
-            <span className="main-menu__btn-label">
-              <strong>Join Room</strong>
-              <small>Enter a friend's room code</small>
-            </span>
+          <button type="button" className="choice" onClick={() => setUiStage('joinSetup')}>
+            <strong>Join a room</strong>
+            <span>Type in your friend's code</span>
           </button>
         </div>
 
@@ -43,7 +25,7 @@ export function MultiplayerMenu() {
           className="face-upload__ghost-button setup__back"
           onClick={() => setUiStage('mainMenu')}
         >
-          ← Back
+          Back
         </button>
       </div>
     </section>

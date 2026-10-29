@@ -234,7 +234,7 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
   return (
     <div className="crop-editor-overlay">
       <div className="crop-editor">
-        <h2 className="crop-editor__title">Line Up Your Face 🤪</h2>
+        <h2 className="crop-editor__title">Line up your face</h2>
         <p className="crop-editor__subtitle">
           Drag the photo to center your face inside the circle. Use the slider to zoom.
         </p>
@@ -257,7 +257,7 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
 
         <div className="crop-editor__controls">
           <label htmlFor="zoom-range" className="crop-editor__label">
-            Zoom: {zoom.toFixed(1)}x
+            Zoom <span>{zoom.toFixed(1)}×</span>
           </label>
           <input
             id="zoom-range"
@@ -273,7 +273,7 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
 
         <label className="crop-editor__cutout">
           <input type="checkbox" checked={cutout} onChange={(e) => setCutout(e.target.checked)} />
-          ✂️ Remove background (sticker head)
+          Remove the background
         </label>
 
         <div className="crop-editor__actions">
@@ -281,7 +281,7 @@ export function FaceCropEditor({ onConfirm, onCancel }: FaceCropEditorProps) {
             Cancel
           </button>
           <button type="button" className="face-upload__button" onClick={handleConfirm} disabled={busy}>
-            {busy ? 'Cutting out…' : 'Use This Face'}
+            {busy ? 'Cutting out…' : 'Use this face'}
           </button>
         </div>
       </div>

@@ -62,8 +62,6 @@ export function JoinRouteHandler() {
       <div className="game-shell">
         <section className="face-upload">
           <div className="face-upload__panel setup-panel">
-            <p className="face-upload__eyebrow">Invite Link</p>
-
             {status === 'checking' && (
               <>
                 <h1 className="face-upload__title setup__title">Finding room {code}…</h1>
@@ -90,14 +88,14 @@ export function JoinRouteHandler() {
                     : `Room ${code || 'in this link'} doesn't exist any more. Rooms close when the host leaves — ask your friend for a fresh link.`}
                 </p>
                 <button type="button" className="face-upload__start-button" onClick={() => goTo('joinSetup', null)}>
-                  Enter a Different Code
+                  Enter a different code
                 </button>
                 <button
                   type="button"
                   className="face-upload__ghost-button setup__back"
                   onClick={() => goTo('mainMenu', null)}
                 >
-                  ← Main Menu
+                  Back to menu
                 </button>
               </>
             )}

@@ -9,8 +9,7 @@ export function StatsScreen() {
   return (
     <section className="face-upload">
       <div className="face-upload__panel setup-panel">
-        <p className="face-upload__eyebrow">Your Stats</p>
-        <h1 className="face-upload__title setup__title">Statistics</h1>
+        <h1 className="face-upload__title setup__title">Your stats</h1>
 
         <div className="stats-grid">
           <div className="stats-card">
@@ -27,23 +26,23 @@ export function StatsScreen() {
           </div>
           <div className="stats-card">
             <span className="stats-card__value">{winRate}%</span>
-            <span className="stats-card__label">Win Rate</span>
+            <span className="stats-card__label">Win rate</span>
           </div>
           <div className="stats-card">
             <span className="stats-card__value">{stats.longestRally}</span>
-            <span className="stats-card__label">Longest Rally</span>
+            <span className="stats-card__label">Longest rally</span>
           </div>
           <div className="stats-card">
             <span className="stats-card__value stats-card__value--text">{stats.highestDifficultyBeaten || '—'}</span>
-            <span className="stats-card__label">Best Difficulty</span>
+            <span className="stats-card__label">Best difficulty</span>
           </div>
           <div className="stats-card">
             <span className="stats-card__value">{stats.topSpeed ? `${stats.topSpeed}` : '—'}</span>
-            <span className="stats-card__label">Top Speed km/h</span>
+            <span className="stats-card__label">Top speed, km/h</span>
           </div>
           <div className="stats-card">
             <span className="stats-card__value">{stats.onlineWins}</span>
-            <span className="stats-card__label">Online Wins</span>
+            <span className="stats-card__label">Online wins</span>
           </div>
         </div>
 
@@ -52,7 +51,7 @@ export function StatsScreen() {
           className="face-upload__ghost-button setup__back"
           onClick={() => setUiStage('mainMenu')}
         >
-          ← Back
+          Back
         </button>
       </div>
     </section>

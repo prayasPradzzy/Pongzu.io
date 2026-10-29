@@ -1,10 +1,12 @@
 import { useFaceUploadStore } from '../../faceUpload/faceUploadStore';
 import { DIFFICULTY_PRESETS } from '../../../game/config/pongConfig';
 import { useSettings } from '../../settings/settings';
+import { CourtRally } from './CourtRally';
 
 export function MainMenu() {
   const { setUiStage, setGameMode, playerName, croppedAvatarUrl, difficulty } = useFaceUploadStore();
-  const { matchLength } = useSettings();
+  const { matchLength, reduceMotion } = useSettings();
+  const name = playerName.trim();
 
   const quickPlay = () => {
     setGameMode('cpu');
@@ -17,64 +19,48 @@ export function MainMenu() {
   };
 
   return (
-    <section className="face-upload">
-      <div className="face-upload__panel main-menu-panel">
-        <div className="main-menu__brand">
-          <span className="main-menu__logo" aria-hidden="true">🏓</span>
-          <h1 className="main-menu__title">Pongzu</h1>
-          <p className="main-menu__tagline">Put your face on the ball. Smash your friends.</p>
-        </div>
+    <section className="rec-menu">
+      <div className="rec-menu__inner">
+        <CourtRally faceUrl={croppedAvatarUrl} autoServe={!reduceMotion} />
 
-        <button type="button" className="profile-chip" onClick={() => setUiStage('profile')}>
-          <span className="profile-chip__avatar">
-            {croppedAvatarUrl ? <img src={croppedAvatarUrl} alt="" /> : <span aria-hidden="true">🙂</span>}
-          </span>
-          <span className="profile-chip__text">
-            <strong>{playerName.trim() ? `Hi, ${playerName.trim()}!` : 'Hi there!'}</strong>
-            <small>{croppedAvatarUrl ? 'Your face is the ball · Edit' : 'Add your face to the ball →'}</small>
-          </span>
-        </button>
+        <p className="rec-menu__face">
+          {name ? `Hi, ${name}. ` : ''}
+          <button type="button" className="rec-menu__link" onClick={() => setUiStage('profile')}>
+            {croppedAvatarUrl ? 'Change your face' : 'Put your face on the ball'}
+          </button>
+        </p>
 
-        <button type="button" className="main-menu__play" onClick={quickPlay}>
-          <span className="main-menu__play-icon" aria-hidden="true">▶</span>
-          <span className="main-menu__play-label">
-            <strong>Play</strong>
-            <small>
-              vs CPU · {DIFFICULTY_PRESETS[difficulty].label} · first to {matchLength}
-            </small>
+        <h1 className="rec-menu__title">Pongzu</h1>
+
+        <button type="button" className="rec-menu__play" onClick={quickPlay}>
+          <span className="rec-menu__play-label">Play vs CPU</span>
+          <span className="rec-menu__play-detail">
+            {DIFFICULTY_PRESETS[difficulty].label}, first to {matchLength}
           </span>
         </button>
 
-        <div className="main-menu__grid">
-          <button type="button" className="main-menu__tile" onClick={() => setUiStage('cpuSetup')}>
-            <span aria-hidden="true">🤖</span>
-            <strong>Vs CPU</strong>
-            <small>Pick difficulty</small>
+        <div className="rec-menu__modes">
+          <button type="button" className="rec-menu__mode" onClick={sameDevice}>
+            <strong>Two players</strong>
+            <span>One phone, two thumbs</span>
           </button>
-          <button type="button" className="main-menu__tile" onClick={sameDevice}>
-            <span aria-hidden="true">👥</span>
-            <strong>2 Players</strong>
-            <small>One phone, two thumbs</small>
-          </button>
-          <button
-            type="button"
-            className="main-menu__tile main-menu__tile--wide"
-            onClick={() => setUiStage('multiplayerMenu')}
-          >
-            <span aria-hidden="true">🌐</span>
-            <strong>Play a friend online</strong>
-            <small>Send an invite link</small>
+          <button type="button" className="rec-menu__mode" onClick={() => setUiStage('multiplayerMenu')}>
+            <strong>Online</strong>
+            <span>Send a friend a link</span>
           </button>
         </div>
 
-        <div className="main-menu__footer-row">
-          <button type="button" className="main-menu__small" onClick={() => setUiStage('stats')}>
-            📊 Stats
+        <nav className="rec-menu__footer" aria-label="More">
+          <button type="button" className="rec-menu__link" onClick={() => setUiStage('cpuSetup')}>
+            Difficulty
           </button>
-          <button type="button" className="main-menu__small" onClick={() => setUiStage('settings')}>
-            ⚙️ Settings
+          <button type="button" className="rec-menu__link" onClick={() => setUiStage('stats')}>
+            Stats
           </button>
-        </div>
+          <button type="button" className="rec-menu__link" onClick={() => setUiStage('settings')}>
+            Settings
+          </button>
+        </nav>
       </div>
     </section>
   );

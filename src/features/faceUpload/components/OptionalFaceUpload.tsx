@@ -140,7 +140,7 @@ export function OptionalFaceUpload() {
         </div>
 
         <div className="ofu__preview-info">
-          <span className="ofu__preview-label">🤪 Face ball ready</span>
+          <span className="ofu__preview-label">Your face is the ball</span>
           <span className="ofu__preview-sub">Your opponent has to smash it.</span>
         </div>
 
@@ -160,21 +160,21 @@ export function OptionalFaceUpload() {
   // ─── Picker ────────────────────────────────────────────────────────────
   return (
     <div className="face-picker">
-      <span className="setup__label">Face Ball</span>
+      <span className="setup__label">Face ball</span>
       <div className="face-picker__actions">
         <button type="button" className="face-picker__action" onClick={() => setCameraOpen(true)}>
-          📷 Take a selfie
+          Take a selfie
         </button>
         <button
           type="button"
           className="face-picker__action"
           onClick={() => document.getElementById(INPUT_ID)?.click()}
         >
-          🖼️ Upload photo
+          Upload a photo
         </button>
       </div>
 
-      <span className="face-picker__pack-label">…or pick a face</span>
+      <span className="face-picker__pack-label">Or pick a face</span>
       <div className="face-picker__pack">
         {FACE_PACK.map((emoji) => (
           <button
@@ -190,7 +190,7 @@ export function OptionalFaceUpload() {
       </div>
 
       <p className="face-picker__privacy">
-        🔒 Your photo is processed on this device. It's only shared with the opponent you're playing online.
+        Your photo is processed on this device. It's only shared with the opponent you're playing online.
       </p>
 
       {changing && (

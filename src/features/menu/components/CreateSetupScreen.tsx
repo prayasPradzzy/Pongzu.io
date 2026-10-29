@@ -23,13 +23,12 @@ export function CreateSetupScreen() {
   return (
     <section className="face-upload">
       <div className="face-upload__panel setup-panel">
-        <p className="face-upload__eyebrow">Create Room</p>
-        <h1 className="face-upload__title setup__title">Host a Game</h1>
+        <h1 className="face-upload__title setup__title">Host a game</h1>
         <p className="face-upload__copy">Set up your profile, then create a room to share with a friend.</p>
 
         {/* Name input */}
         <div className="setup__field">
-          <label className="setup__label" htmlFor="create-name">Your Name</label>
+          <label className="setup__label" htmlFor="create-name">Your name</label>
           <input
             id="create-name"
             className="setup__input"
@@ -53,7 +52,7 @@ export function CreateSetupScreen() {
           onClick={handleCreate}
           disabled={!playerName.trim()}
         >
-          Create Room →
+          Create room
         </button>
 
         <button
@@ -61,7 +60,7 @@ export function CreateSetupScreen() {
           className="face-upload__ghost-button setup__back"
           onClick={() => setUiStage('multiplayerMenu')}
         >
-          ← Back
+          Back
         </button>
       </div>
     </section>

@@ -89,7 +89,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
   return (
     <div className="crop-editor-overlay">
       <div className="crop-editor">
-        <h2 className="crop-editor__title">Say cheese! 📸</h2>
+        <h2 className="crop-editor__title">Say cheese</h2>
         <p className="crop-editor__subtitle">
           {error ?? 'Pull your best (or worst) face — it’s about to get smashed.'}
         </p>
@@ -110,7 +110,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
           </button>
           {!error && (
             <button type="button" className="face-upload__button" onClick={capture} disabled={!ready}>
-              {ready ? 'Snap!' : 'Starting camera…'}
+              {ready ? 'Take photo' : 'Starting camera…'}
             </button>
           )}
         </div>

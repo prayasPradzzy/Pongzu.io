@@ -36,13 +36,12 @@ export function JoinSetupScreen() {
   return (
     <section className="face-upload">
       <div className="face-upload__panel setup-panel">
-        <p className="face-upload__eyebrow">Join Room</p>
-        <h1 className="face-upload__title setup__title">Join a Game</h1>
+        <h1 className="face-upload__title setup__title">Join a game</h1>
         <p className="face-upload__copy">{roomCode ? `You've been invited to room ${roomCode}. Add your name and jump in.` : 'Enter the room code from your friend, then set up your profile.'}</p>
 
         {/* Room code */}
         <div className="setup__field">
-          <label className="setup__label" htmlFor="join-code">Room Code</label>
+          <label className="setup__label" htmlFor="join-code">Room code</label>
           <input
             id="join-code"
             className="setup__input setup__input--code"
@@ -64,7 +63,7 @@ export function JoinSetupScreen() {
 
         {/* Name input */}
         <div className="setup__field">
-          <label className="setup__label" htmlFor="join-name">Your Name</label>
+          <label className="setup__label" htmlFor="join-name">Your name</label>
           <input
             id="join-name"
             className="setup__input"
@@ -90,7 +89,7 @@ export function JoinSetupScreen() {
           onClick={handleJoin}
           disabled={!joinCode.trim() || !playerName.trim()}
         >
-          Join Room →
+          Join room
         </button>
 
         <button
@@ -101,7 +100,7 @@ export function JoinSetupScreen() {
             setUiStage('multiplayerMenu');
           }}
         >
-          ← Back
+          Back
         </button>
       </div>
     </section>

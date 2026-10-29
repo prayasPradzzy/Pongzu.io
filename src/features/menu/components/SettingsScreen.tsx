@@ -11,12 +11,11 @@ export function SettingsScreen() {
   return (
     <section className="face-upload">
       <div className="face-upload__panel setup-panel">
-        <p className="face-upload__eyebrow">Settings</p>
         <h1 className="face-upload__title setup__title">Settings</h1>
 
         <div className="setup__field">
           <label className="setup__label" htmlFor="music-volume">
-            Music · {Math.round(settings.musicVolume * 100)}%
+            Music <span>{Math.round(settings.musicVolume * 100)}%</span>
           </label>
           <input
             id="music-volume"
@@ -32,7 +31,7 @@ export function SettingsScreen() {
 
         <div className="setup__field">
           <label className="setup__label" htmlFor="sfx-volume">
-            Sound effects · {Math.round(settings.sfxVolume * 100)}%
+            Sound effects <span>{Math.round(settings.sfxVolume * 100)}%</span>
           </label>
           <input
             id="sfx-volume"
@@ -48,7 +47,7 @@ export function SettingsScreen() {
         </div>
 
         <div className="setup__field">
-          <span className="setup__label">Match length (CPU &amp; 2 players)</span>
+          <span className="setup__label">Match length for CPU and two-player games</span>
           <div className="settings__segmented" role="radiogroup" aria-label="Match length">
             {MATCH_LENGTHS.map((length) => (
               <button
