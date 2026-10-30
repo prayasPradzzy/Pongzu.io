@@ -24,6 +24,12 @@ type SocketServiceType = typeof socketServiceInstance;
 
 const ONLINE_WINNING_SCORE = PONG_CONFIG.winningScore;
 const RALLY_MILESTONES = [10, 20, 30, 50, 75, 100];
+// Past this round trip the ball is no longer predicted any further ahead.
+const MAX_BALL_LEAD_MS = 220;
+// A little extra lead for the input waiting for its next send and server tick.
+const INPUT_DELAY_MS = 16;
+// Two turnarounds this close together are a corrected prediction, not two hits.
+const MIN_BOUNCE_GAP_MS = 150;
 
 /**
  * Online multiplayer Phaser scene.
@@ -64,6 +70,7 @@ export class OnlinePongScene extends Phaser.Scene {
   // For spotting bounces in the rendered ball path
   private lastBallVx = 0;
   private lastBallVy = 0;
+  private lastBounceAt = 0;
   private rallyHits = 0;
   private topSpeed = 0;
   private whooshedThisRally = false;
@@ -172,6 +179,13 @@ export class OnlinePongScene extends Phaser.Scene {
 
     // ── Render the delayed, smoothed world ──
     const view = this.snapshots.getInterpolatedState();
+    const ballLead = Math.min(this.socketService.ping + INPUT_DELAY_MS, MAX_BALL_LEAD_MS);
+    const ballView = this.snapshots.getBallView(
+      this.role === 'host' ? 'top' : 'bottom',
+      ballLead,
+      this.localPaddleX,
+      moved.moved,
+    );
     let ballVisible = false;
 
     if (view) {
@@ -179,18 +193,18 @@ export class OnlinePongScene extends Phaser.Scene {
       this.opponentPaddle.setPosition(opponentX, topY);
 
       ballVisible = view.state === 'playing' && !blocked;
-      if (ballVisible) {
-        const ballX = view.ball.x;
-        const ballY = this.flipped ? ARENA_HEIGHT - view.ball.y : view.ball.y;
-        const speed = Math.hypot(view.ball.vx, view.ball.vy);
+      if (ballVisible && ballView) {
+        const ballX = ballView.ball.x;
+        const ballY = this.flipped ? ARENA_HEIGHT - ballView.ball.y : ballView.ball.y;
+        const speed = Math.hypot(ballView.ball.vx, ballView.ball.vy);
         const heat = (speed - PONG_CONFIG.ball.initialSpeed) / (PONG_CONFIG.ball.maxSpeed - PONG_CONFIG.ball.initialSpeed);
         this.topSpeed = Math.max(this.topSpeed, speed);
 
         this.ball.setPosition(ballX, ballY);
-        this.ball.roll(view.ball.vx, delta);
+        this.ball.roll(ballView.ball.vx, delta);
         this.ball.setHeat(heat, time);
         this.effects.setHeat(heat);
-        this.detectBounces(view.ball.vx, view.ball.vy, ballX, ballY, heat);
+        this.detectBounces(ballView.ball.vx, ballView.ball.vy, ballX, ballY, heat, time);
         this.effects.trackBall(ballX, ballY);
         this.effects.updateGlow(ballX, ballY, time);
       } else {
@@ -230,11 +244,14 @@ export class OnlinePongScene extends Phaser.Scene {
     }
   }
 
-  private detectBounces(vx: number, vy: number, x: number, y: number, heat: number) {
+  private detectBounces(vx: number, vy: number, x: number, y: number, heat: number, time: number) {
     const vyFlipped = this.lastBallVy !== 0 && Math.sign(vy) !== Math.sign(this.lastBallVy);
     const vxFlipped = this.lastBallVx !== 0 && vx !== 0 && Math.sign(vx) !== Math.sign(this.lastBallVx);
 
-    if (vyFlipped) {
+    if (vyFlipped && time - this.lastBounceAt < MIN_BOUNCE_GAP_MS) {
+      // Prediction correcting itself; the ball hasn't really been hit again.
+    } else if (vyFlipped) {
+      this.lastBounceAt = time;
       const mine = y > ARENA_HEIGHT / 2;
       this.rallyHits += 1;
       this.effects.playPaddleHit(x, y, heat);

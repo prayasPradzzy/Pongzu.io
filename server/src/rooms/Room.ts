@@ -19,6 +19,18 @@ const TICK_MS = 1000 / TICK_RATE_HZ;
 // ball skip through a paddle.
 const SUBSTEP_MS = 4;
 const MAX_TICK_DELTA_MS = 100;
+// Physics stays at 60 Hz, but sending half as many snapshots keeps slow
+// connections and small servers from falling behind. Clients interpolate.
+const TICKS_PER_SNAPSHOT = 2;
+
+// Hit forgiveness. Even with client prediction, a player's screen and the
+// server disagree slightly because of jitter, so close calls favour the hitter.
+const HIT_MARGIN_PX = 10;
+// The paddle counts if it covered the ball within this many recent physics
+// steps (20 × 4 ms = 80 ms)...
+const PADDLE_HISTORY_STEPS = 20;
+// ...or if it arrives this soon after the ball crossed the paddle's line.
+const LATE_CATCH_SECONDS = 0.06;
 
 const REMATCH_TIMEOUT_MS = 60_000;
 export const RECONNECT_GRACE_MS = 20_000;
@@ -33,6 +45,8 @@ export type PlayerSlot = {
   targetX: number | null;
   /** Direction the paddle actually moved last step — used for spin. */
   moveDirection: number;
+  /** Where the paddle has been lately, oldest first — used for forgiving hits. */
+  recentPaddleX: number[];
   lastInputSeq: number;
   playerName: string;
   avatarDataUrl: string | null;
@@ -75,6 +89,7 @@ export class Room {
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private rematchTimer: ReturnType<typeof setTimeout> | null = null;
   private tickSeq = 0;
+  private ticksSinceSnapshot = 0;
   private lastTickTime = 0;
   private nextServe: ServeDirection = 'down';
   private destroyed = false;
@@ -402,7 +417,9 @@ export class Room {
       remaining -= step;
     }
 
-    if (this.isSimulating()) {
+    this.ticksSinceSnapshot++;
+    if (this.isSimulating() && this.ticksSinceSnapshot >= TICKS_PER_SNAPSHOT) {
+      this.ticksSinceSnapshot = 0;
       this.broadcastSnapshot(now);
     }
   }
@@ -438,6 +455,19 @@ export class Room {
     const moved = next - player.paddleX;
     player.moveDirection = Math.abs(moved) > 0.01 ? Math.sign(moved) : 0;
     player.paddleX = next;
+    player.recentPaddleX.push(next);
+    if (player.recentPaddleX.length > PADDLE_HISTORY_STEPS) player.recentPaddleX.shift();
+  }
+
+  /** The recent paddle position that best covers the ball, or null if none does. */
+  private paddleCoveringBall(player: PlayerSlot): number | null {
+    const reach = SERVER_PONG_CONFIG.paddle.width / 2 + SERVER_PONG_CONFIG.ball.radius + HIT_MARGIN_PX;
+    let best: number | null = null;
+    for (const x of [player.paddleX, ...player.recentPaddleX]) {
+      const distance = Math.abs(this.ball.x - x);
+      if (distance <= reach && (best === null || distance < Math.abs(this.ball.x - best))) best = x;
+    }
+    return best;
   }
 
   private broadcastSnapshot(now: number) {
@@ -452,7 +482,9 @@ export class Room {
       topScore: this.scoreManager.getTopScore(),
       bottomScore: this.scoreManager.getBottomScore(),
     };
-    this.io.to(this.code).emit(SERVER_EVENTS.GAME_STATE_SNAPSHOT, snapshot);
+    // Volatile: if a connection is backed up, skip this snapshot instead of
+    // queueing it. Only the newest position matters.
+    this.io.to(this.code).volatile.emit(SERVER_EVENTS.GAME_STATE_SNAPSHOT, snapshot);
   }
 
   private checkPaddleCollisions() {
@@ -460,18 +492,20 @@ export class Room {
     const topPaddleY = SERVER_PONG_CONFIG.paddle.topOffset;
     const bottomPaddleY = ARENA_HEIGHT - SERVER_PONG_CONFIG.paddle.bottomOffset;
     const halfHeight = SERVER_PONG_CONFIG.paddle.height / 2;
-    const reach = SERVER_PONG_CONFIG.paddle.width / 2 + radius;
+    const lateCatch = Math.abs(this.ball.vy) * LATE_CATCH_SECONDS;
 
     // Top paddle (host): ball travelling up, leading edge inside the paddle slab
     if (
       this.host &&
       this.ball.vy < 0 &&
       this.ball.y - radius <= topPaddleY + halfHeight &&
-      this.ball.y >= topPaddleY - halfHeight &&
-      Math.abs(this.ball.x - this.host.paddleX) <= reach
+      this.ball.y >= topPaddleY - halfHeight - lateCatch
     ) {
-      this.ball.y = topPaddleY + halfHeight + radius;
-      this.bounce(this.host, 'top');
+      const paddleX = this.paddleCoveringBall(this.host);
+      if (paddleX !== null) {
+        this.ball.y = topPaddleY + halfHeight + radius;
+        this.bounce(this.host, 'top', paddleX);
+      }
     }
 
     // Bottom paddle (guest)
@@ -479,17 +513,19 @@ export class Room {
       this.guest &&
       this.ball.vy > 0 &&
       this.ball.y + radius >= bottomPaddleY - halfHeight &&
-      this.ball.y <= bottomPaddleY + halfHeight &&
-      Math.abs(this.ball.x - this.guest.paddleX) <= reach
+      this.ball.y <= bottomPaddleY + halfHeight + lateCatch
     ) {
-      this.ball.y = bottomPaddleY - halfHeight - radius;
-      this.bounce(this.guest, 'bottom');
+      const paddleX = this.paddleCoveringBall(this.guest);
+      if (paddleX !== null) {
+        this.ball.y = bottomPaddleY - halfHeight - radius;
+        this.bounce(this.guest, 'bottom', paddleX);
+      }
     }
   }
 
-  private bounce(player: PlayerSlot, side: PaddleSide) {
+  private bounce(player: PlayerSlot, side: PaddleSide, paddleX: number) {
     this.ball.setSpeed(this.scoreManager.registerPaddleHit());
-    this.ball.bounceFromPaddle(player.paddleX, SERVER_PONG_CONFIG.paddle.width, side, player.moveDirection);
+    this.ball.bounceFromPaddle(paddleX, SERVER_PONG_CONFIG.paddle.width, side, player.moveDirection);
   }
 
   private handlePoint(scoringSide: PaddleSide) {
@@ -542,6 +578,7 @@ export class Room {
       inputDirection: 0,
       targetX: null,
       moveDirection: 0,
+      recentPaddleX: [],
       lastInputSeq: 0,
       playerName,
       avatarDataUrl,
@@ -573,6 +610,8 @@ export class Room {
   private centerPaddles() {
     if (this.host) this.host.paddleX = ARENA_WIDTH / 2;
     if (this.guest) this.guest.paddleX = ARENA_WIDTH / 2;
+    if (this.host) this.host.recentPaddleX = [];
+    if (this.guest) this.guest.recentPaddleX = [];
     this.resetInputDirections();
   }
 
