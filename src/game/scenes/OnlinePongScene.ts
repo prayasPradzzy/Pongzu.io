@@ -96,7 +96,7 @@ export class OnlinePongScene extends Phaser.Scene {
       showPing: true,
       faceTopPlayer: false,
       showChangeDifficulty: false,
-      playAgainLabel: 'REMATCH',
+      playAgainLabel: 'Rematch',
     });
     this.hud.setScore(0, 0);
     this.effects = new VisualEffectsSystem(this);
@@ -249,7 +249,7 @@ export class OnlinePongScene extends Phaser.Scene {
 
       if (this.rallyHits >= 5) this.hud.popText(`${this.rallyHits}`, x, y, mine);
       if (RALLY_MILESTONES.includes(this.rallyHits)) {
-        this.hud.showBanner(`${this.rallyHits} RALLY! 🔥`);
+        this.hud.showBanner(`${this.rallyHits}-hit rally!`);
         audioManager.playRallyMilestone();
       }
       if (heat >= 0.85 && !this.whooshedThisRally) {
@@ -302,7 +302,7 @@ export class OnlinePongScene extends Phaser.Scene {
         if (value === '3') {
           audioManager.duckMusic(true);
           if (this.myScore === ONLINE_WINNING_SCORE - 1 || this.opponentScore === ONLINE_WINNING_SCORE - 1) {
-            this.hud.showBanner('MATCH POINT');
+            this.hud.showBanner('Match point');
             audioManager.playRallyMilestone();
           }
         }
@@ -324,11 +324,11 @@ export class OnlinePongScene extends Phaser.Scene {
       svc.onGameRoundEnd(({ scoringSide }) => {
         const localSide = this.role === 'host' ? 'top' : 'bottom';
         const iScored = scoringSide === localSide;
-        this.hud.showPointMessage(iScored ? '🎉 YOU SCORE' : '😤 OPPONENT SCORES');
+        this.hud.showPointMessage(iScored ? 'You scored' : 'They scored');
         audioManager.playScore(iScored);
         const exitY = iScored ? PONG_CONFIG.arenaPadding : ARENA_HEIGHT - PONG_CONFIG.arenaPadding;
         this.effects.playScoreExplosion(this.ball.getX(), exitY);
-        this.effects.flashScreen(255, 214, 236);
+        this.effects.flashScreen(251, 250, 247);
         // Loser's face goes on the ball for the next point.
         this.ball.setFace(iScored ? this.pickFace(FACE_OPPONENT, FACE_ME) : this.pickFace(FACE_ME, FACE_OPPONENT));
         // The ball jumps back to the centre — don't blend across that.
@@ -339,7 +339,7 @@ export class OnlinePongScene extends Phaser.Scene {
 
       svc.onMatchRematchVote(() => {
         if (!this.rematchVoted && !this.roomClosed) {
-          this.hud.setPlayAgainLabel('ACCEPT REMATCH');
+          this.hud.setPlayAgainLabel('Accept rematch');
         }
       }),
 
@@ -377,7 +377,7 @@ export class OnlinePongScene extends Phaser.Scene {
       svc.onRoomClosed(({ reason }) => {
         this.roomClosed = true;
         if (this.matchOver) {
-          this.hud.setPlayAgainLabel('OPPONENT LEFT', false);
+          this.hud.setPlayAgainLabel('Opponent left', false);
         } else {
           this.showOverlay(reason || 'The room was closed.');
         }
@@ -392,7 +392,7 @@ export class OnlinePongScene extends Phaser.Scene {
         } else if (status === 'failed') {
           this.connectionLost = true;
           this.roomClosed = true;
-          if (this.matchOver) this.hud.setPlayAgainLabel('DISCONNECTED', false);
+          if (this.matchOver) this.hud.setPlayAgainLabel('Disconnected', false);
           else this.showOverlay("Couldn't reconnect to the server.");
         }
       }),
@@ -402,7 +402,7 @@ export class OnlinePongScene extends Phaser.Scene {
       if (this.rematchVoted || this.roomClosed || !this.matchOver) return;
       this.rematchVoted = true;
       this.socketService.sendRematch();
-      this.hud.setPlayAgainLabel('WAITING FOR OPPONENT…', false);
+      this.hud.setPlayAgainLabel('Waiting for opponent…', false);
     });
 
     this.events.on('exit-match', () => {
@@ -447,8 +447,8 @@ export class OnlinePongScene extends Phaser.Scene {
 
     this.hud.showWinScreen({
       victory: localWon,
-      title: localWon ? 'VICTORY' : 'DEFEAT',
-      subtitle: localWon ? `You beat ${opponentName}!` : `${opponentName} wins!`,
+      title: localWon ? 'You won' : 'You lost',
+      subtitle: localWon ? `You beat ${opponentName}` : `${opponentName} wins`,
       lines,
       loserFaceKey: localWon ? this.pickFace(FACE_OPPONENT, PLAIN_BALL_KEY) : this.pickFace(FACE_ME, PLAIN_BALL_KEY),
     });
@@ -456,7 +456,7 @@ export class OnlinePongScene extends Phaser.Scene {
     if (forfeit) {
       // The server has already torn the room down.
       this.roomClosed = true;
-      this.hud.setPlayAgainLabel('OPPONENT LEFT', false);
+      this.hud.setPlayAgainLabel('Opponent left', false);
     }
   }
 
@@ -465,11 +465,12 @@ export class OnlinePongScene extends Phaser.Scene {
   private showOverlay(message: string, countdownSeconds?: number) {
     this.hideOverlay();
 
-    const font = 'Nunito, system-ui, sans-serif';
+    const font = PONG_CONFIG.fonts.body;
+    const { chalk } = PONG_CONFIG.colors;
 
-    const bg = this.add.rectangle(0, 0, 440, 250, 0x2a1a55, 0.94);
-    bg.setStrokeStyle(3, 0xffb7e1, 0.8);
-    bg.setRounded(26);
+    const bg = this.add.rectangle(0, 0, 440, 250, PONG_CONFIG.colors.net, 0.96);
+    bg.setStrokeStyle(3, chalk, 1);
+    bg.setRounded(10);
 
     const text = this.add.text(0, -62, message, {
       fontFamily: font,
@@ -481,20 +482,18 @@ export class OnlinePongScene extends Phaser.Scene {
     });
     text.setOrigin(0.5);
 
-    const returnBg = this.add.rectangle(0, 64, 300, 52, 0xffffff, 1);
-    returnBg.setStrokeStyle(2, 0xff8dc7, 1);
-    returnBg.setRounded(26);
+    const returnBg = this.add.rectangle(0, 64, 300, 52, chalk, 1);
+    returnBg.setRounded(16);
     returnBg.setInteractive({ useHandCursor: true });
     returnBg.on('pointerdown', () => this.events.emit('exit-match'));
 
-    const returnText = this.add.text(0, 64, 'MAIN MENU', {
+    const returnText = this.add.text(0, 64, 'Main menu', {
       fontFamily: font,
       fontSize: '17px',
-      color: '#ff4fa3',
-      fontStyle: '900',
+      color: PONG_CONFIG.colors.strokeText,
+      fontStyle: '800',
     });
     returnText.setOrigin(0.5);
-    returnText.setLetterSpacing(1.5);
 
     const children: Phaser.GameObjects.GameObject[] = [bg, text, returnBg, returnText];
 
@@ -505,7 +504,7 @@ export class OnlinePongScene extends Phaser.Scene {
         fontFamily: font,
         fontSize: '17px',
         fontStyle: '700',
-        color: '#ffb7e1',
+        color: PONG_CONFIG.colors.mutedText,
         align: 'center',
       });
       countdownText.setOrigin(0.5);

@@ -51,7 +51,7 @@ export class ScoreManager {
     this.longestRally = 0;
     this.topSpeed = 0;
     this.hud.setScore(0, 0);
-    this.hud.showMessage(`FIRST TO ${this.options.winningScore}`);
+    this.hud.showMessage(`First to ${this.options.winningScore}`);
     this.hud.hideWinScreen();
     this.runCountdown(initialServe);
   }
@@ -129,7 +129,7 @@ export class ScoreManager {
 
     const target = this.options.winningScore;
     if (this.topScore === target - 1 || this.bottomScore === target - 1) {
-      this.hud.showBanner('MATCH POINT');
+      this.hud.showBanner('Match point');
       audioManager.playRallyMilestone();
     }
 

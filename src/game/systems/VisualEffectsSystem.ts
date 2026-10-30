@@ -6,7 +6,8 @@ import { ARENA_WIDTH } from '../utils/sceneSetup';
 
 const PARTICLE_TEXTURE_KEY = 'pong-particle';
 const CONFETTI_TEXTURE_KEY = 'pong-confetti';
-const CONFETTI_COLORS = [0xff4fa3, 0x7c5cff, 0xffd84d, 0x4dd9ff, 0x7dffb0, 0xffffff];
+const { ball: ORANGE, chalk: CHALK, paddleBottom: RED, wood: WOOD, net: NAVY } = PONG_CONFIG.colors;
+const CONFETTI_COLORS = [ORANGE, CHALK, RED, WOOD, NAVY];
 
 /**
  * Visual juice only (no sound, no gameplay). Respects the "reduce motion"
@@ -26,7 +27,7 @@ export class VisualEffectsSystem {
     this.scene = scene;
     this.ensureTextures();
 
-    this.glow = this.scene.add.circle(0, 0, PONG_CONFIG.ball.radius * 2.2, PONG_CONFIG.colors.glow, 0.35);
+    this.glow = this.scene.add.circle(0, 0, PONG_CONFIG.ball.radius * 2.2, PONG_CONFIG.colors.glow, 0.18);
     this.glow.setBlendMode(Phaser.BlendModes.NORMAL);
     this.glow.setDepth(8);
 
@@ -41,7 +42,7 @@ export class VisualEffectsSystem {
       quantity: 1,
       scale: { start: 0.9, end: 0 },
       alpha: { start: 0.55, end: 0 },
-      tint: [PONG_CONFIG.colors.pink, PONG_CONFIG.colors.cyan, 0xffffff],
+      tint: [ORANGE, CHALK],
     });
     this.trail.setDepth(9);
 
@@ -51,7 +52,7 @@ export class VisualEffectsSystem {
       quantity: 0,
       scale: { start: 0.7, end: 0 },
       alpha: { start: 0.95, end: 0 },
-      tint: [PONG_CONFIG.colors.pink, PONG_CONFIG.colors.paddleTop, 0xffd84d],
+      tint: [ORANGE, CHALK, RED],
       angle: { min: 0, max: 360 },
       emitting: false,
     });
@@ -71,7 +72,7 @@ export class VisualEffectsSystem {
   /** 0 = calm, 1 = top speed. A faster ball gets a longer, hotter trail. */
   setHeat(heat: number) {
     this.heat = Phaser.Math.Clamp(heat, 0, 1);
-    this.glow.setFillStyle(this.heat > 0.6 ? 0xffb0b0 : PONG_CONFIG.colors.glow, 0.3 + this.heat * 0.2);
+    this.glow.setFillStyle(this.heat > 0.6 ? ORANGE : PONG_CONFIG.colors.glow, 0.18 + this.heat * 0.2);
     this.trail.frequency = Phaser.Math.Linear(26, 8, this.heat);
     this.trail.quantity = this.heat > 0.75 ? 2 : 1;
   }

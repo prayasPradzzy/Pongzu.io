@@ -16,17 +16,32 @@ export class Paddle {
     const w = PONG_CONFIG.paddle.width;
     const h = PONG_CONFIG.paddle.height;
 
+    const { wood, chalk, paddleTop } = PONG_CONFIG.colors;
+
     this.glow = scene.add.graphics();
-    this.glow.fillStyle(color, 0.18);
+    this.glow.fillStyle(chalk, 0.14);
     this.glow.fillRoundedRect(-w / 2 - 8, -h / 2 - 8, w + 16, h + 16, (h + 16) / 2);
     this.glow.setDepth(4);
 
     this.body = scene.add.graphics();
+
+    // Wooden handle points away from the net, towards the player holding it.
+    const awayFromNet = y < PONG_CONFIG.arena.height / 2 ? -1 : 1;
+    this.body.fillStyle(wood, 1);
+    this.body.fillRoundedRect(-9, awayFromNet < 0 ? -h / 2 - 14 : h / 2 - 2, 18, 16, 4);
+
     this.body.fillStyle(color, 1);
     this.body.fillRoundedRect(-w / 2, -h / 2, w, h, h / 2);
-    this.body.fillStyle(0xffffff, 0.35);
-    this.body.fillRoundedRect(-w / 2 + 10, -h / 2 + 4, w - 20, 5, 2.5);
-    this.body.lineStyle(2, 0xffffff, 0.9);
+
+    // Rubber pimples, the same texture as the menu's red buttons.
+    this.body.fillStyle(color === paddleTop ? 0xffffff : 0x000000, color === paddleTop ? 0.12 : 0.18);
+    for (let py = -h / 2 + 5; py < h / 2 - 2; py += 5) {
+      for (let px = -w / 2 + 8; px < w / 2 - 6; px += 5) {
+        this.body.fillCircle(px, py, 1.1);
+      }
+    }
+
+    this.body.lineStyle(3, wood, 1);
     this.body.strokeRoundedRect(-w / 2, -h / 2, w, h, h / 2);
     this.body.setDepth(5);
 

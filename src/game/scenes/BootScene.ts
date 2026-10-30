@@ -72,14 +72,14 @@ export class BootScene extends Phaser.Scene {
       ctx.drawImage(source, 0, 0, FACE_SIZE, FACE_SIZE);
       ctx.restore();
 
-      // Sticker rim so the face reads as a ball against the light arena.
+      // Sticker rim so the face reads as a ball against the blue table.
       ctx.lineWidth = 10;
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = '#FF9A1F';
       ctx.beginPath();
       ctx.arc(half, half, half - 9, 0, Math.PI * 2);
       ctx.stroke();
       ctx.lineWidth = 4;
-      ctx.strokeStyle = '#6a4be0';
+      ctx.strokeStyle = '#14213D';
       ctx.beginPath();
       ctx.arc(half, half, half - 3, 0, Math.PI * 2);
       ctx.stroke();

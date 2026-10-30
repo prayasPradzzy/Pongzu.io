@@ -3,13 +3,16 @@ import Phaser from 'phaser';
 import { PONG_CONFIG } from '../config/pongConfig';
 import { ARENA_HEIGHT, ARENA_WIDTH } from '../utils/sceneSetup';
 
-const FONT = 'Nunito, "Avenir Next Rounded", "Arial Rounded MT Bold", system-ui, sans-serif';
+const DISPLAY = PONG_CONFIG.fonts.display;
+const FONT = PONG_CONFIG.fonts.body;
+const { text: CHALK_TEXT, mutedText: MUTED_TEXT, accentText: ACCENT_TEXT, strokeText: STROKE_TEXT } = PONG_CONFIG.colors;
+const SCORE_ALPHA = 0.22;
 
 export const HINT_STORAGE_KEY = 'pongzu-controls-hint-seen';
 
 /** Text for the first-match controls hint on this device. */
 export function controlsHint(touch: boolean): string {
-  return touch ? '👆 Drag anywhere to move your paddle' : 'Move with ← → or A D  ·  or click and drag';
+  return touch ? 'Drag anywhere to move your paddle' : 'Move with ← → or A D, or click and drag';
 }
 
 export function hasSeenControlsHint(): boolean {
@@ -83,101 +86,95 @@ export class GameHud {
 
     // ── Scores: one big, faint number in each half (classic Pong) ──
     const scoreStyle: Phaser.Types.GameObjects.Text.TextStyle = {
-      fontFamily: FONT,
+      fontFamily: DISPLAY,
       fontSize: '170px',
-      fontStyle: '900',
       color: PONG_CONFIG.colors.text,
     };
-    this.topScoreText = scene.add.text(W / 2, H * 0.27, '0', scoreStyle).setOrigin(0.5).setAlpha(0.13).setDepth(1);
-    this.bottomScoreText = scene.add.text(W / 2, H * 0.73, '0', scoreStyle).setOrigin(0.5).setAlpha(0.13).setDepth(1);
+    this.topScoreText = scene.add.text(W / 2, H * 0.27, '0', scoreStyle).setOrigin(0.5).setAlpha(SCORE_ALPHA).setDepth(1);
+    this.bottomScoreText = scene.add.text(W / 2, H * 0.73, '0', scoreStyle).setOrigin(0.5).setAlpha(SCORE_ALPHA).setDepth(1);
     if (options.faceTopPlayer) this.topScoreText.setAngle(180);
 
     // ── Centre messages ──
     this.countdownText = scene.add
       .text(W / 2, H / 2, '', {
-        fontFamily: FONT,
+        fontFamily: DISPLAY,
         fontSize: '140px',
-        fontStyle: '900',
         color: PONG_CONFIG.colors.text,
       })
       .setOrigin(0.5)
       .setAlpha(0)
-      .setStroke('#ffffff', 18)
+      .setStroke(STROKE_TEXT, 14)
       .setDepth(30);
 
     this.pointText = scene.add
       .text(W / 2, H / 2 + 112, '', {
-        fontFamily: FONT,
-        fontSize: '34px',
-        fontStyle: '900',
+        fontFamily: DISPLAY,
+        fontSize: '36px',
         color: PONG_CONFIG.colors.text,
       })
       .setOrigin(0.5)
       .setAlpha(0)
-      .setStroke('#ffffff', 10)
+      .setStroke(STROKE_TEXT, 8)
       .setDepth(30);
 
     this.messageText = scene.add
       .text(W / 2, H / 2 + 158, '', {
         fontFamily: FONT,
-        fontSize: '20px',
+        fontSize: '22px',
         fontStyle: '800',
-        color: PONG_CONFIG.colors.mutedText,
+        color: MUTED_TEXT,
       })
       .setOrigin(0.5)
       .setAlpha(0)
-      .setLetterSpacing(2)
       .setDepth(30);
 
     this.bannerText = scene.add
       .text(W / 2, H / 2 - 130, '', {
-        fontFamily: FONT,
-        fontSize: '46px',
-        fontStyle: '900',
-        color: '#ff4fa3',
+        fontFamily: DISPLAY,
+        fontSize: '52px',
+        color: ACCENT_TEXT,
         align: 'center',
       })
       .setOrigin(0.5)
       .setAlpha(0)
-      .setStroke('#ffffff', 12)
+      .setStroke(STROKE_TEXT, 10)
       .setDepth(31);
 
     // ── Names follow the paddles ──
-    this.topNameLabel = this.createNameLabel(options.topName, PONG_CONFIG.colors.paddleTop);
-    this.bottomNameLabel = this.createNameLabel(options.bottomName, PONG_CONFIG.colors.paddleBottom);
+    this.topNameLabel = this.createNameLabel(options.topName);
+    this.bottomNameLabel = this.createNameLabel(options.bottomName);
     if (options.faceTopPlayer) this.topNameLabel.setAngle(180);
 
     // ── Exit button ──
-    const exitBg = scene.add.circle(0, 0, 22, 0xffffff, 0.85).setStrokeStyle(2, PONG_CONFIG.colors.frame, 1);
+    const exitBg = scene.add.circle(0, 0, 22, PONG_CONFIG.colors.chalk, 1);
     exitBg.setInteractive({ useHandCursor: true });
     const exitText = scene.add
-      .text(0, 0, '✕', { fontFamily: FONT, fontSize: '20px', fontStyle: '900', color: '#7c5cff' })
+      .text(0, 0, '✕', { fontFamily: FONT, fontSize: '20px', fontStyle: '800', color: STROKE_TEXT })
       .setOrigin(0.5);
     this.exitButton = scene.add.container(W - 54, 54, [exitBg, exitText]).setDepth(100);
     exitBg.on('pointerdown', () => scene.events.emit('exit-match'));
 
     if (options.showPing) {
       this.pingText = scene.add
-        .text(40, 44, 'Ping —', { fontFamily: FONT, fontSize: '15px', fontStyle: '800', color: '#8F78E8' })
+        .text(40, 44, 'Ping —', { fontFamily: FONT, fontSize: '15px', fontStyle: '800', color: MUTED_TEXT })
         .setDepth(100);
     }
 
     // ── Result card ──
-    const panelBg = scene.add.rectangle(0, 0, 480, 540, 0xfffaff, 0.97);
-    panelBg.setStrokeStyle(3, 0xff8dc7, 0.9);
-    panelBg.setRounded(32);
+    const panelBg = scene.add.rectangle(0, 15, 480, 570, PONG_CONFIG.colors.courtDeep, 1);
+    panelBg.setStrokeStyle(4, PONG_CONFIG.colors.chalk, 1);
+    panelBg.setRounded(10);
 
     this.winTitleText = scene.add
-      .text(0, -88, 'VICTORY', { fontFamily: FONT, fontSize: '22px', fontStyle: '900', color: '#7B5CE6' })
-      .setOrigin(0.5)
-      .setLetterSpacing(6);
+      .text(0, -96, '', { fontFamily: DISPLAY, fontSize: '56px', color: CHALK_TEXT })
+      .setOrigin(0.5);
 
     this.winSubtitleText = scene.add
-      .text(0, -48, '', {
+      .text(0, -46, '', {
         fontFamily: FONT,
-        fontSize: '36px',
-        fontStyle: '900',
-        color: '#5B3FD6',
+        fontSize: '24px',
+        fontStyle: '800',
+        color: CHALK_TEXT,
         align: 'center',
         wordWrap: { width: 420 },
       })
@@ -187,27 +184,26 @@ export class GameHud {
       .text(0, 26, '', {
         fontFamily: FONT,
         fontSize: '18px',
-        fontStyle: '700',
-        color: '#8F78E8',
+        fontStyle: '600',
+        color: MUTED_TEXT,
         align: 'center',
         lineSpacing: 8,
       })
       .setOrigin(0.5);
 
     const button = (y: number, label: string, primary: boolean) => {
-      const bg = scene.add.rectangle(0, y, 340, 54, primary ? 0x7c5cff : 0xffffff, 1);
-      bg.setRounded(27);
-      if (!primary) bg.setStrokeStyle(2, 0xff8dc7, 1);
+      const bg = scene.add.rectangle(0, y, 340, 54, primary ? PONG_CONFIG.colors.paddleBottom : PONG_CONFIG.colors.chalk, primary ? 1 : 0);
+      bg.setRounded(16);
+      if (!primary) bg.setStrokeStyle(2, PONG_CONFIG.colors.chalk, 0.7);
       bg.setInteractive({ useHandCursor: true });
       const text = scene.add
         .text(0, y, label, {
-          fontFamily: FONT,
-          fontSize: '17px',
-          fontStyle: '900',
-          color: primary ? '#ffffff' : '#ff4fa3',
+          fontFamily: primary ? DISPLAY : FONT,
+          fontSize: primary ? '24px' : '18px',
+          fontStyle: primary ? 'normal' : '800',
+          color: CHALK_TEXT,
         })
-        .setOrigin(0.5)
-        .setLetterSpacing(1.5);
+        .setOrigin(0.5);
       bg.on('pointerover', () => {
         bg.setScale(1.03);
         text.setScale(1.03);
@@ -235,12 +231,12 @@ export class GameHud {
 
     let nextY = 184;
     if (options.showChangeDifficulty) {
-      const change = button(nextY, 'CHANGE DIFFICULTY', false);
+      const change = button(nextY, 'Change difficulty', false);
       change.bg.on('pointerdown', () => this.scene.registry.get('customConfig')?.onChangeDifficulty?.());
       children.push(change.bg, change.text);
       nextY += 62;
     }
-    const menu = button(nextY, 'MAIN MENU', false);
+    const menu = button(nextY, 'Main menu', false);
     menu.bg.on('pointerdown', () => scene.events.emit('exit-match'));
     children.push(menu.bg, menu.text);
 
@@ -248,14 +244,14 @@ export class GameHud {
   }
 
   setNamePositions(topX: number, bottomX: number) {
-    this.topNameLabel.setPosition(topX, PONG_CONFIG.paddle.topOffset - 34);
-    this.bottomNameLabel.setPosition(bottomX, ARENA_HEIGHT - PONG_CONFIG.paddle.bottomOffset + 34);
+    this.topNameLabel.setPosition(topX, PONG_CONFIG.paddle.topOffset - 46);
+    this.bottomNameLabel.setPosition(bottomX, ARENA_HEIGHT - PONG_CONFIG.paddle.bottomOffset + 46);
   }
 
   setPing(pingMs: number) {
     if (!this.pingText) return;
     this.pingText.setText(pingMs > 0 ? `Ping ${Math.round(pingMs)}ms` : 'Ping —');
-    this.pingText.setColor(pingMs < 90 ? '#8F78E8' : pingMs < 160 ? '#D9A21B' : '#E65C5C');
+    this.pingText.setColor(pingMs < 90 ? MUTED_TEXT : pingMs < 160 ? ACCENT_TEXT : '#FFB3B8');
   }
 
   /** top = opponent, bottom = local player. The side that just changed pops. */
@@ -268,7 +264,7 @@ export class GameHud {
 
   showCountdown(value: string, isGo?: boolean) {
     this.countdownText.setText(value);
-    this.countdownText.setColor(isGo ? '#FF4FA3' : PONG_CONFIG.colors.text);
+    this.countdownText.setColor(isGo ? ACCENT_TEXT : CHALK_TEXT);
     this.countdownText.setAlpha(1).setScale(0.6);
     this.scene.tweens.killTweensOf(this.countdownText);
     this.scene.tweens.add({ targets: this.countdownText, scale: 1, duration: 260, ease: 'Back.Out' });
@@ -302,8 +298,8 @@ export class GameHud {
     this.messageText.setAlpha(0);
   }
 
-  /** Big celebratory line, e.g. "MATCH POINT" or "20 RALLY!". */
-  showBanner(value: string, color = '#FF4FA3') {
+  /** Big celebratory line, e.g. "Match point" or "20-hit rally!". */
+  showBanner(value: string, color = ACCENT_TEXT) {
     this.bannerText.setText(value).setColor(color).setAlpha(1).setScale(0.4).setAngle(-4);
     this.scene.tweens.killTweensOf(this.bannerText);
     this.scene.tweens.add({ targets: this.bannerText, scale: 1, angle: 0, duration: 320, ease: 'Back.Out' });
@@ -313,9 +309,9 @@ export class GameHud {
   /** Small number that floats up from a paddle (rally counter). */
   popText(value: string, x: number, y: number, rising: boolean) {
     const text = this.scene.add
-      .text(x, y, value, { fontFamily: FONT, fontSize: '26px', fontStyle: '900', color: '#FF4FA3' })
+      .text(x, y, value, { fontFamily: DISPLAY, fontSize: '28px', color: ACCENT_TEXT })
       .setOrigin(0.5)
-      .setStroke('#ffffff', 8)
+      .setStroke(STROKE_TEXT, 6)
       .setDepth(32);
     this.scene.tweens.add({
       targets: text,
@@ -336,13 +332,13 @@ export class GameHud {
         fontFamily: FONT,
         fontSize: '19px',
         fontStyle: '800',
-        color: '#ffffff',
+        color: CHALK_TEXT,
         align: 'center',
         wordWrap: { width: 460 },
       })
       .setOrigin(0.5);
-    const bg = this.scene.add.rectangle(0, 0, text.width + 44, text.height + 22, 0x5b3fd6, 0.88);
-    bg.setRounded((text.height + 22) / 2);
+    const bg = this.scene.add.rectangle(0, 0, text.width + 44, text.height + 22, PONG_CONFIG.colors.net, 0.92);
+    bg.setRounded(14);
     this.hint = this.scene.add
       .container(ARENA_WIDTH / 2, ARENA_HEIGHT - PONG_CONFIG.paddle.bottomOffset - 110, [bg, text])
       .setDepth(40);
@@ -360,14 +356,17 @@ export class GameHud {
   /** Relabel the result card's primary button (e.g. while waiting on a rematch vote). */
   setPlayAgainLabel(label: string, enabled = true) {
     this.playAgainText.setText(label);
-    this.playAgainBg.setFillStyle(enabled ? 0x7c5cff : 0xc4b8ec, 1);
+    // Unavailable actions lose their rubber and keep only a chalk outline.
+    this.playAgainBg.setFillStyle(PONG_CONFIG.colors.paddleBottom, enabled ? 1 : 0);
+    if (enabled) this.playAgainBg.isStroked = false;
+    else this.playAgainBg.setStrokeStyle(2, PONG_CONFIG.colors.chalk, 0.7);
     if (enabled) this.playAgainBg.setInteractive({ useHandCursor: true });
     else this.playAgainBg.disableInteractive();
   }
 
   showWinScreen(content: WinScreenContent) {
-    this.winTitleText.setText(content.title).setColor(content.victory ? '#7B5CE6' : '#E65C5C');
-    this.winSubtitleText.setText(content.subtitle).setColor(content.victory ? '#5B3FD6' : '#D94848');
+    this.winTitleText.setText(content.title);
+    this.winSubtitleText.setText(content.subtitle);
     this.winStatsText.setText(content.lines.join('\n'));
 
     this.loserFace?.destroy();
@@ -424,18 +423,18 @@ export class GameHud {
     text.setText(String(value));
     if (!animate) return;
     this.scene.tweens.killTweensOf(text);
-    text.setAlpha(0.45).setScale(1.25);
-    this.scene.tweens.add({ targets: text, alpha: 0.13, scale: 1, duration: 700, ease: 'Quad.easeOut' });
+    text.setAlpha(0.6).setScale(1.25);
+    this.scene.tweens.add({ targets: text, alpha: SCORE_ALPHA, scale: 1, duration: 700, ease: 'Quad.easeOut' });
   }
 
-  private createNameLabel(name: string, color: number) {
-    const label = this.scene.add.text(0, 0, name.toUpperCase(), {
+  private createNameLabel(name: string) {
+    const label = this.scene.add.text(0, 0, name, {
       fontFamily: FONT,
-      fontSize: '17px',
-      fontStyle: '900',
-      color: '#' + color.toString(16).padStart(6, '0'),
+      fontSize: '18px',
+      fontStyle: '800',
+      color: CHALK_TEXT,
     });
-    label.setOrigin(0.5).setLetterSpacing(2).setStroke('#ffffff', 6).setDepth(6);
+    label.setOrigin(0.5).setDepth(6);
     return label;
   }
 }

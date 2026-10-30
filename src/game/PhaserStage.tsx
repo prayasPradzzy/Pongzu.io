@@ -8,8 +8,9 @@ import { getSettings } from '../features/settings/settings';
 function waitForGameFont(): Promise<void> {
   if (!document.fonts?.load) return Promise.resolve();
   const loaded = Promise.all([
-    document.fonts.load('800 32px Nunito'),
-    document.fonts.load('700 32px Nunito'),
+    document.fonts.load('400 32px "Bagel Fat One"'),
+    document.fonts.load('800 32px Figtree'),
+    document.fonts.load('600 32px Figtree'),
   ]).then(() => undefined);
   const timeout = new Promise<void>((resolve) => setTimeout(resolve, 1500));
   return Promise.race([loaded, timeout]).catch(() => undefined);

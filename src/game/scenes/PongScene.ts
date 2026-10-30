@@ -42,7 +42,7 @@ export class PongScene extends Phaser.Scene {
   private freezeUntil = 0;
   private whooshedThisRally = false;
   private topName = 'CPU';
-  private bottomName = 'YOU';
+  private bottomName = 'You';
   private hintVisible = false;
 
   constructor() {
@@ -76,7 +76,7 @@ export class PongScene extends Phaser.Scene {
       showPing: false,
       faceTopPlayer: local,
       showChangeDifficulty: !local,
-      playAgainLabel: 'PLAY AGAIN',
+      playAgainLabel: 'Play again',
     });
     this.effects = new VisualEffectsSystem(this);
 
@@ -99,8 +99,8 @@ export class PongScene extends Phaser.Scene {
     this.scoreManager = new ScoreManager(this, this.hud, {
       winningScore: config?.winningScore ?? PONG_CONFIG.winningScore,
       pointMessage: (scorer) => {
-        if (local) return `🎉 ${(scorer === 'bottom' ? this.bottomName : this.topName).toUpperCase()} SCORES`;
-        return scorer === 'bottom' ? '🎉 YOU SCORE' : '😤 CPU SCORES';
+        if (local) return `${scorer === 'bottom' ? this.bottomName : this.topName} scored`;
+        return scorer === 'bottom' ? 'You scored' : 'CPU scored';
       },
       onServe: (direction) => this.launchBall(direction),
       onMatchOver: (result) => this.handleMatchOver(result),
@@ -127,7 +127,7 @@ export class PongScene extends Phaser.Scene {
 
     const touch = this.sys.game.device.input.touch;
     if (local) {
-      this.hud.showHint(touch ? '👆 Each player drags in their own half' : 'Bottom: ← →   ·   Top: A D');
+      this.hud.showHint(touch ? 'Each player drags in their own half' : 'Bottom player: ← →   Top player: A D');
       this.hintVisible = true;
     } else if (!hasSeenControlsHint()) {
       this.hud.showHint(controlsHint(touch));
@@ -213,7 +213,7 @@ export class PongScene extends Phaser.Scene {
       this.hud.popText(`${rally}`, x, y, side === 'bottom');
     }
     if (RALLY_MILESTONES.includes(rally)) {
-      this.hud.showBanner(`${rally} RALLY! 🔥`);
+      this.hud.showBanner(`${rally}-hit rally!`);
       audioManager.playRallyMilestone();
     }
     if (heat >= 0.85 && !this.whooshedThisRally) {
@@ -227,7 +227,7 @@ export class PongScene extends Phaser.Scene {
     const exitY = scorer === 'bottom' ? PONG_CONFIG.arenaPadding : ARENA_HEIGHT - PONG_CONFIG.arenaPadding;
     this.ball.setVisible(false);
     this.effects.playScoreExplosion(exitX, exitY);
-    this.effects.flashScreen(255, 214, 236);
+    this.effects.flashScreen(251, 250, 247);
     audioManager.playScore(this.mode === 'local' || scorer === 'bottom');
 
     // Loser's face goes on the ball for the next point.
@@ -251,8 +251,8 @@ export class PongScene extends Phaser.Scene {
       this.effects.celebrate();
       this.hud.showWinScreen({
         victory: true,
-        title: 'WINNER',
-        subtitle: `${winner} wins!`,
+        title: 'Winner',
+        subtitle: `${winner} wins`,
         lines,
         loserFaceKey: bottomWon ? FACE_OPPONENT : this.textures.exists(FACE_ME) ? FACE_ME : PLAIN_BALL_KEY,
       });
@@ -274,8 +274,8 @@ export class PongScene extends Phaser.Scene {
 
     this.hud.showWinScreen({
       victory: bottomWon,
-      title: bottomWon ? 'VICTORY' : 'DEFEAT',
-      subtitle: bottomWon ? `You beat the CPU!` : 'The CPU wins this one',
+      title: bottomWon ? 'You won' : 'You lost',
+      subtitle: bottomWon ? 'You beat the CPU' : 'The CPU wins this one',
       lines: [...lines, `Difficulty: ${DIFFICULTY_PRESETS[this.difficulty].label}`],
       loserFaceKey: bottomWon ? FACE_OPPONENT : this.textures.exists(FACE_ME) ? FACE_ME : PLAIN_BALL_KEY,
     });

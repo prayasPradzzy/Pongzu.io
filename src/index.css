@@ -108,12 +108,8 @@ select {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   GAME STAGE — the Phaser arena keeps its own look for now
+   GAME STAGE
 ══════════════════════════════════════════════════════════════════ */
-
-.game-shell:has(.phaser-stage) {
-  background: linear-gradient(180deg, #f8f1ff 0%, #fdeeff 100%);
-}
 
 .phaser-stage {
   width: 100%;
@@ -124,7 +120,7 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7b5ce6;
+  color: var(--chalk);
   font-weight: 700;
 }
 
@@ -132,10 +128,7 @@ select {
   display: block;
   width: 100%;
   height: 100%;
-  border-radius: 36px;
-  box-shadow: 0 16px 40px rgba(123, 92, 230, 0.15),
-              0 8px 16px rgba(123, 92, 230, 0.1);
-  background: #f3eaff;
+  background: var(--court);
   outline: none;
   touch-action: none;
 }

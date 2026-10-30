@@ -118,16 +118,12 @@ export class Ball {
     const r = PONG_CONFIG.ball.radius * TEXTURE_SCALE;
     const graphics = this.scene.add.graphics();
 
-    // Dark outline so the white ball pops against the pastel arena.
-    graphics.fillStyle(PONG_CONFIG.colors.ballOutline, 1);
+    // A plain orange table tennis ball with a darker edge and one highlight.
+    graphics.fillStyle(PONG_CONFIG.colors.ballEdge, 1);
     graphics.fillCircle(r, r, r);
-    graphics.fillStyle(0xffffff, 1);
+    graphics.fillStyle(PONG_CONFIG.colors.ball, 1);
     graphics.fillCircle(r, r, r - 3 * TEXTURE_SCALE);
-    graphics.fillStyle(0xffd3ea, 1);
-    graphics.fillCircle(r + 2 * TEXTURE_SCALE, r + 3 * TEXTURE_SCALE, r - 8 * TEXTURE_SCALE);
-    graphics.fillStyle(0xffffff, 1);
-    graphics.fillCircle(r - 1 * TEXTURE_SCALE, r - 1 * TEXTURE_SCALE, r - 8 * TEXTURE_SCALE);
-    graphics.fillStyle(0xffffff, 0.95);
+    graphics.fillStyle(0xffffff, 0.55);
     graphics.fillCircle(r - 6 * TEXTURE_SCALE, r - 7 * TEXTURE_SCALE, 4 * TEXTURE_SCALE); // shine
     graphics.generateTexture(BALL_TEXTURE_KEY, r * 2, r * 2);
     graphics.destroy();
